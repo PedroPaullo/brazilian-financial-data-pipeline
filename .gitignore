@@ -1,0 +1,11 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+data/raw/**/*.csv
+data/raw/**/*.json
+*.log
+.vscode/
+.idea/
