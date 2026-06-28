@@ -18,6 +18,7 @@ PAGE_OPTIONS = (
     "Resumo Executivo",
     "Status do Pipeline",
     "Qualidade dos Dados",
+    "Benchmarks",
     "Selic Diaria",
     "IPCA Mensal",
     "Cotacoes B3",
@@ -80,6 +81,19 @@ def load_quality_results(results_path: str) -> pd.DataFrame:
 @st.cache_data(show_spinner=True)
 def load_date_gaps(gaps_path: str) -> pd.DataFrame:
     return pd.read_csv(gaps_path)
+
+
+@st.cache_data(show_spinner=True)
+def load_bcb_series_data(database_path: str) -> pd.DataFrame:
+    query = """
+        SELECT series_name, description, frequency, reference_date, value
+        FROM vw_bcb_series_values
+        ORDER BY series_name, reference_date
+    """
+
+    df = read_sql_query(database_path, query)
+    df["reference_date"] = pd.to_datetime(df["reference_date"])
+    return df
 
 
 @st.cache_data(show_spinner=True)
@@ -172,7 +186,6 @@ def load_stock_data(database_path: str) -> pd.DataFrame:
             adjusted_close_price,
             volume
         FROM vw_b3_stock_prices
-        WHERE ticker IN ('PETR4.SA', 'VALE3.SA', 'ITUB4.SA')
         ORDER BY reference_date, ticker
     """
 
@@ -225,6 +238,49 @@ def calculate_stock_returns(stocks_df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=STOCK_RETURN_COLUMNS).sort_values("ticker")
 
 
+def calculate_benchmark_returns(
+    bcb_series_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+
+    for ticker, ticker_df in stocks_df.groupby("ticker"):
+        ticker_df = ticker_df.sort_values("reference_date")
+        first_value = float(ticker_df.iloc[0]["adjusted_close_price"])
+        last_value = float(ticker_df.iloc[-1]["adjusted_close_price"])
+        return_pct = ((last_value / first_value) - 1) * 100 if first_value else None
+        rows.append({
+            "benchmark": ticker,
+            "tipo": "mercado",
+            "data_inicial": ticker_df.iloc[0]["reference_date"],
+            "data_final": ticker_df.iloc[-1]["reference_date"],
+            "valor_inicial": first_value,
+            "valor_final": last_value,
+            "retorno_pct": return_pct,
+        })
+
+    for series_name, series_df in bcb_series_df.groupby("series_name"):
+        series_df = series_df.sort_values("reference_date")
+        first_value = float(series_df.iloc[0]["value"])
+        last_value = float(series_df.iloc[-1]["value"])
+        if series_name in {"selic_daily", "cdi_daily", "ipca_monthly"}:
+            return_pct = ((series_df["value"] / 100 + 1).prod() - 1) * 100
+        else:
+            return_pct = ((last_value / first_value) - 1) * 100 if first_value else None
+
+        rows.append({
+            "benchmark": series_name,
+            "tipo": "macro",
+            "data_inicial": series_df.iloc[0]["reference_date"],
+            "data_final": series_df.iloc[-1]["reference_date"],
+            "valor_inicial": first_value,
+            "valor_final": last_value,
+            "retorno_pct": return_pct,
+        })
+
+    return pd.DataFrame(rows).sort_values(["tipo", "benchmark"])
+
+
 def filter_by_date_range(
     df: pd.DataFrame,
     date_column: str,
@@ -255,6 +311,13 @@ def stop_if_empty(df: pd.DataFrame, message: str) -> None:
     st.stop()
 
 
+def latest_row_or_none(df: pd.DataFrame, sort_column: str) -> pd.Series | None:
+    if df.empty:
+        return None
+
+    return df.sort_values(sort_column).iloc[-1]
+
+
 def format_pct(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "N/D"
@@ -283,6 +346,7 @@ def build_freshness_df(
     selic_df: pd.DataFrame,
     ipca_df: pd.DataFrame,
     stocks_df: pd.DataFrame,
+    bcb_series_df: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
 
@@ -316,6 +380,24 @@ def build_freshness_df(
                 "status": classify_freshness(latest_stock_date, max_age_days=3, warning_age_days=7),
             }
         )
+
+    if bcb_series_df is not None:
+        known_series = {"selic_daily", "ipca_monthly"}
+        for series_name, series_df in bcb_series_df[~bcb_series_df["series_name"].isin(known_series)].groupby("series_name"):
+            latest_bcb_date = series_df["reference_date"].max()
+            frequency = str(series_df["frequency"].iloc[0])
+            rows.append(
+                {
+                    "fonte": f"BCB {series_name}",
+                    "ultima_data": latest_bcb_date,
+                    "registros": len(series_df),
+                    "status": classify_freshness(
+                        latest_bcb_date,
+                        max_age_days=45 if frequency == "monthly" else 3,
+                        warning_age_days=75 if frequency == "monthly" else 7,
+                    ),
+                }
+            )
 
     freshness_df = pd.DataFrame(rows)
     freshness_df["dias_desde_ultima_data"] = (
@@ -373,6 +455,7 @@ def render_sidebar() -> str:
 
 
 def render_executive_summary(
+    bcb_series_df: pd.DataFrame,
     selic_df: pd.DataFrame,
     ipca_df: pd.DataFrame,
     stocks_df: pd.DataFrame,
@@ -380,6 +463,9 @@ def render_executive_summary(
     st.header("Resumo Executivo")
 
     latest_selic = selic_df.sort_values("reference_date").iloc[-1]
+    latest_usd = latest_row_or_none(bcb_series_df[bcb_series_df["series_name"] == "usd_brl_ptax_sell_daily"], "reference_date")
+    latest_cdi = latest_row_or_none(bcb_series_df[bcb_series_df["series_name"] == "cdi_daily"], "reference_date")
+    latest_ibov = latest_row_or_none(stocks_df[stocks_df["ticker"] == "^BVSP"], "reference_date")
     ipca_accumulated_2024 = calculate_ipca_accumulated(ipca_df, year=2024)
     stock_returns_df = calculate_stock_returns(stocks_df)
 
@@ -398,9 +484,15 @@ def render_executive_summary(
     col1, col2, col3, col4 = st.columns(4)
 
     col1.metric("Ultima Selic diaria", f"{latest_selic['selic_daily_value']:.6f}")
-    col2.metric("Data da ultima Selic", latest_selic["reference_date"].strftime("%d/%m/%Y"))
-    col3.metric("IPCA acumulado 2024", format_pct(ipca_accumulated_2024))
-    col4.metric("Tickers B3", stocks_df["ticker"].nunique())
+    col2.metric("CDI diario", f"{latest_cdi['value']:.6f}" if latest_cdi is not None else "N/D")
+    col3.metric("Dolar PTAX venda", f"R$ {format_number(float(latest_usd['value']), 4)}" if latest_usd is not None else "N/D")
+    col4.metric("Ibovespa", format_number(float(latest_ibov["close_price"]), 2) if latest_ibov is not None else "N/D")
+
+    col5, col6, col7, col8 = st.columns(4)
+    col5.metric("IPCA acumulado 2024", format_pct(ipca_accumulated_2024))
+    col6.metric("Data Selic", latest_selic["reference_date"].strftime("%d/%m/%Y"))
+    col7.metric("Tickers/benchmarks B3", stocks_df["ticker"].nunique())
+    col8.metric("Series BCB", bcb_series_df["series_name"].nunique())
 
     st.markdown("---")
     st.subheader("Cobertura do pipeline")
@@ -437,7 +529,70 @@ def render_executive_summary(
     st.plotly_chart(fig_returns, use_container_width=True)
 
 
+def render_benchmarks_page(
+    bcb_series_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+) -> None:
+    st.header("Benchmarks")
+
+    returns_df = calculate_benchmark_returns(bcb_series_df, stocks_df)
+    display_df = returns_df.copy()
+    display_df["data_inicial"] = display_df["data_inicial"].dt.strftime("%d/%m/%Y")
+    display_df["data_final"] = display_df["data_final"].dt.strftime("%d/%m/%Y")
+    display_df["valor_inicial"] = display_df["valor_inicial"].round(4)
+    display_df["valor_final"] = display_df["valor_final"].round(4)
+    display_df["retorno_pct"] = display_df["retorno_pct"].round(2)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Benchmarks", len(returns_df))
+    col2.metric("Macro", int((returns_df["tipo"] == "macro").sum()))
+    col3.metric("Mercado", int((returns_df["tipo"] == "mercado").sum()))
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    fig_returns = px.bar(
+        returns_df,
+        x="benchmark",
+        y="retorno_pct",
+        color="tipo",
+        text="retorno_pct",
+        title="Retorno acumulado no periodo",
+        labels={"benchmark": "Benchmark", "retorno_pct": "Retorno (%)", "tipo": "Tipo"},
+    )
+    fig_returns.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    fig_returns.update_layout(yaxis_ticksuffix="%")
+    st.plotly_chart(fig_returns, use_container_width=True)
+
+    b3_line_df = stocks_df.sort_values(["ticker", "reference_date"]).copy()
+    b3_line_df["base_100"] = b3_line_df.groupby("ticker")["adjusted_close_price"].transform(lambda s: s / s.iloc[0] * 100)
+
+    fig_b3 = px.line(
+        b3_line_df,
+        x="reference_date",
+        y="base_100",
+        color="ticker",
+        title="Ativos B3 e Ibovespa em base 100",
+        labels={"reference_date": "Data", "base_100": "Base 100", "ticker": "Ticker"},
+    )
+    fig_b3.update_layout(hovermode="x unified")
+    st.plotly_chart(fig_b3, use_container_width=True)
+
+    macro_df = bcb_series_df.sort_values(["series_name", "reference_date"]).copy()
+    macro_df["base_100"] = macro_df.groupby("series_name")["value"].transform(lambda s: s / s.iloc[0] * 100)
+    fig_macro = px.line(
+        macro_df,
+        x="reference_date",
+        y="base_100",
+        color="series_name",
+        title="Indicadores macro em base 100",
+        labels={"reference_date": "Data", "base_100": "Base 100", "series_name": "Serie"},
+    )
+    fig_macro.update_layout(hovermode="x unified")
+    st.plotly_chart(fig_macro, use_container_width=True)
+
+
 def render_pipeline_status_page(
+    bcb_series_df: pd.DataFrame,
     selic_df: pd.DataFrame,
     ipca_df: pd.DataFrame,
     stocks_df: pd.DataFrame,
@@ -448,7 +603,7 @@ def render_pipeline_status_page(
     source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
 
     if source_freshness_df.empty:
-        freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df)
+        freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df, bcb_series_df)
         st.info("Freshness calculado em tempo real. Execute o pipeline para popular o historico operacional.")
     else:
         freshness_df = build_operational_freshness_display(source_freshness_df)
@@ -763,10 +918,12 @@ def main() -> None:
     validate_database_exists(PROCESSED_DB_FILE)
 
     database_path = str(PROCESSED_DB_FILE)
+    bcb_series_df = load_bcb_series_data(database_path)
     selic_df = load_selic_data(database_path)
     ipca_df = load_ipca_data(database_path)
     stocks_df = load_stock_data(database_path)
 
+    stop_if_empty(bcb_series_df, "Nao ha series BCB no banco final.")
     stop_if_empty(selic_df, "Nao ha dados de Selic no banco final.")
     stop_if_empty(ipca_df, "Nao ha dados de IPCA no banco final.")
     stop_if_empty(stocks_df, "Nao ha cotacoes B3 no banco final.")
@@ -775,11 +932,13 @@ def main() -> None:
     page = render_sidebar()
 
     if page == "Resumo Executivo":
-        render_executive_summary(selic_df, ipca_df, stocks_df)
+        render_executive_summary(bcb_series_df, selic_df, ipca_df, stocks_df)
     elif page == "Status do Pipeline":
-        render_pipeline_status_page(selic_df, ipca_df, stocks_df)
+        render_pipeline_status_page(bcb_series_df, selic_df, ipca_df, stocks_df)
     elif page == "Qualidade dos Dados":
         render_data_quality_page()
+    elif page == "Benchmarks":
+        render_benchmarks_page(bcb_series_df, stocks_df)
     elif page == "Selic Diaria":
         render_selic_page(selic_df)
     elif page == "IPCA Mensal":

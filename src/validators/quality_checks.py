@@ -9,6 +9,7 @@ import pandas as pd
 CRITICAL_COLUMNS = {
     "raw_selic_daily": ["source", "series_code", "series_name", "date", "value"],
     "raw_ipca_monthly": ["source", "series_code", "series_name", "date", "value"],
+    "raw_bcb_series": ["source", "series_code", "series_name", "date", "value"],
     "raw_stock_prices_daily": ["source", "ticker", "date", "open", "high", "low", "close", "adjusted_close", "volume"],
 }
 
@@ -47,6 +48,7 @@ def _check_duplicates(conn, results):
     rules = [
         {"dataset": "raw_selic_daily", "keys": "date, series_code"},
         {"dataset": "raw_ipca_monthly", "keys": "date, series_code"},
+        {"dataset": "raw_bcb_series", "keys": "date, series_code"},
         {"dataset": "raw_stock_prices_daily", "keys": "date, ticker"},
     ]
     for rule in rules:
@@ -66,6 +68,9 @@ def _check_negative_values(conn, results):
     for rule in rules:
         query = f"SELECT COUNT(*) FROM {rule['dataset']} WHERE CAST({rule['column']} AS REAL) < 0"
         _build_result(results, "validity", f"negative_value_{rule['column']}", rule["dataset"], "sql", "error", _execute_scalar(conn, query), f"Coluna {rule['column']} nao deve ser negativa.", query)
+
+    bcb_query = "SELECT COUNT(*) FROM raw_bcb_series WHERE series_name <> 'ipca_monthly' AND CAST(value AS REAL) < 0"
+    _build_result(results, "validity", "negative_value_non_ipca_bcb_series", "raw_bcb_series", "sql", "error", _execute_scalar(conn, bcb_query), "Series BCB nao relacionadas ao IPCA nao devem ser negativas.", bcb_query)
 
 def _check_ipca_dates(conn, results):
     query = "SELECT COUNT(*) FROM raw_ipca_monthly WHERE date IS NOT NULL AND strftime('%d', date) <> '01'"
@@ -114,6 +119,36 @@ def _check_stock_coverage(conn, results, gaps):
             gaps.append({"dataset": "raw_stock_prices_daily", "key": ticker, "missing_date": d.strftime("%Y-%m-%d"), "check_name": "stock_coverage"})
     _build_result(results, "coverage", "stock_business_day_coverage", "raw_stock_prices_daily", "python", "warning", total_missing, "Gaps podem ser feriados da B3.")
 
+
+def _check_bcb_series_coverage(conn, results, gaps):
+    df = _load_dates(conn, "raw_bcb_series", "series_name")
+    total_missing_daily = 0
+    total_missing_monthly = 0
+
+    for series_name, sdf in df.groupby("series_name"):
+        if series_name.endswith("_monthly"):
+            expected = pd.date_range(sdf["date"].min().replace(day=1), sdf["date"].max().replace(day=1), freq="MS")
+            actual = pd.DatetimeIndex(sdf["date"].dt.to_period("M").dt.to_timestamp().drop_duplicates())
+            missing = expected.difference(actual)
+            total_missing_monthly += len(missing)
+            check_name = "bcb_monthly_coverage"
+        else:
+            expected = pd.date_range(sdf["date"].min(), sdf["date"].max(), freq="B")
+            missing = expected.difference(pd.DatetimeIndex(sdf["date"].drop_duplicates()))
+            total_missing_daily += len(missing)
+            check_name = "bcb_business_day_coverage"
+
+        for d in missing:
+            gaps.append({
+                "dataset": "raw_bcb_series",
+                "key": series_name,
+                "missing_date": d.strftime("%Y-%m-%d"),
+                "check_name": check_name,
+            })
+
+    _build_result(results, "coverage", "bcb_daily_series_business_day_coverage", "raw_bcb_series", "python", "warning", total_missing_daily, "Gaps podem ser feriados nacionais.")
+    _build_result(results, "coverage", "bcb_monthly_series_coverage", "raw_bcb_series", "python", "error", total_missing_monthly, "Series BCB mensais devem ter um registro por mes.")
+
 def run_quality_checks(database_file):
     results, gaps = [], []
     with sqlite3.connect(database_file) as conn:
@@ -124,6 +159,7 @@ def run_quality_checks(database_file):
         _check_ohlc(conn, results)
         _check_selic_coverage(conn, results, gaps)
         _check_ipca_coverage(conn, results, gaps)
+        _check_bcb_series_coverage(conn, results, gaps)
         _check_stock_coverage(conn, results, gaps)
     results_df = pd.DataFrame(results)
     gaps_df = pd.DataFrame(gaps)

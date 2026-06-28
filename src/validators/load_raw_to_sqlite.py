@@ -25,7 +25,18 @@ def _coerce_numeric_columns(df: pd.DataFrame, numeric_columns: list[str]) -> pd.
             df[column] = pd.to_numeric(df[column], errors="coerce")
     return df
 
-def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file):
+def _load_optional_bcb_files(extra_bcb_files: list[Path] | None) -> list[pd.DataFrame]:
+    dataframes = []
+    for file_path in extra_bcb_files or []:
+        if not file_path.exists():
+            continue
+        df = _standardize_date_column(_read_csv_safely(file_path))
+        df = _coerce_numeric_columns(df, ["series_code", "value"])
+        dataframes.append(df)
+    return dataframes
+
+
+def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file, extra_bcb_files=None):
     database_file.parent.mkdir(parents=True, exist_ok=True)
     selic_df = _read_csv_safely(selic_file)
     ipca_df = _read_csv_safely(ipca_file)
@@ -36,15 +47,22 @@ def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file):
     selic_df = _coerce_numeric_columns(selic_df, ["series_code", "value"])
     ipca_df = _coerce_numeric_columns(ipca_df, ["series_code", "value"])
     stocks_df = _coerce_numeric_columns(stocks_df, ["open", "high", "low", "close", "adjusted_close", "volume"])
+    bcb_series_df = pd.concat(
+        [selic_df, ipca_df, *_load_optional_bcb_files(extra_bcb_files)],
+        ignore_index=True,
+    )
     with sqlite3.connect(database_file) as conn:
         selic_df.to_sql("raw_selic_daily", conn, if_exists="replace", index=False)
         ipca_df.to_sql("raw_ipca_monthly", conn, if_exists="replace", index=False)
+        bcb_series_df.to_sql("raw_bcb_series", conn, if_exists="replace", index=False)
         stocks_df.to_sql("raw_stock_prices_daily", conn, if_exists="replace", index=False)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_selic_date_series ON raw_selic_daily(date, series_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_ipca_date_series ON raw_ipca_monthly(date, series_code)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_bcb_series_date_series ON raw_bcb_series(date, series_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_stocks_date_ticker ON raw_stock_prices_daily(date, ticker)")
     return {
         "raw_selic_daily": len(selic_df),
         "raw_ipca_monthly": len(ipca_df),
+        "raw_bcb_series": len(bcb_series_df),
         "raw_stock_prices_daily": len(stocks_df),
     }

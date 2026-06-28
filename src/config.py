@@ -9,15 +9,19 @@ RAW_B3_DIR = RAW_DATA_DIR / "b3"
 BCB_SERIES = {
     "selic_daily": {"code": 11, "description": "Taxa Selic diaria", "frequency": "daily"},
     "ipca_monthly": {"code": 433, "description": "IPCA mensal", "frequency": "monthly"},
+    "usd_brl_ptax_sell_daily": {"code": 1, "description": "Dolar americano venda PTAX diario", "frequency": "daily"},
+    "cdi_daily": {"code": 12, "description": "Taxa CDI diaria", "frequency": "daily"},
 }
 
-DEFAULT_B3_TICKERS = ["PETR4.SA", "VALE3.SA", "ITUB4.SA"]
+DEFAULT_B3_TICKERS = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "^BVSP"]
 
 OUTPUT_FILES = {
-    "selic_daily": RAW_BCB_DIR / "selic_daily.csv",
-    "ipca_monthly": RAW_BCB_DIR / "ipca_monthly.csv",
-    "stock_prices_daily": RAW_B3_DIR / "stock_prices_daily.csv",
+    series_name: RAW_BCB_DIR / f"{series_name}.csv"
+    for series_name in BCB_SERIES
 }
+OUTPUT_FILES.update({
+    "stock_prices_daily": RAW_B3_DIR / "stock_prices_daily.csv",
+})
 
 VALIDATION_DATA_DIR = PROJECT_ROOT / "data" / "validation"
 VALIDATION_REPORT_DIR = PROJECT_ROOT / "reports" / "validation"

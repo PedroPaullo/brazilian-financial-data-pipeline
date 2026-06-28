@@ -26,20 +26,20 @@ def main():
     try:
         logger.info("Coletando dados de %s ate %s...", args.start, args.end)
 
-        selic_df = fetch_bcb_sgs_series(BCB_SERIES["selic_daily"]["code"], "selic_daily", args.start, args.end)
-        save_bcb_series_to_csv(selic_df, OUTPUT_FILES["selic_daily"])
-
-        ipca_df = fetch_bcb_sgs_series(BCB_SERIES["ipca_monthly"]["code"], "ipca_monthly", args.start, args.end)
-        save_bcb_series_to_csv(ipca_df, OUTPUT_FILES["ipca_monthly"])
+        bcb_dfs = {}
+        for series_name, metadata in BCB_SERIES.items():
+            bcb_df = fetch_bcb_sgs_series(metadata["code"], series_name, args.start, args.end)
+            save_bcb_series_to_csv(bcb_df, OUTPUT_FILES[series_name])
+            bcb_dfs[series_name] = bcb_df
 
         stocks_df = fetch_b3_stock_prices(args.tickers, args.start, args.end)
         save_b3_prices_to_csv(stocks_df, OUTPUT_FILES["stock_prices_daily"])
 
-        records_output = len(selic_df) + len(ipca_df) + len(stocks_df)
+        records_output = sum(len(df) for df in bcb_dfs.values()) + len(stocks_df)
         finish_pipeline_run(run_id, "SUCCESS", records_output=records_output, errors_count=0)
 
-        logger.info("Selic: %s registros", len(selic_df))
-        logger.info("IPCA: %s registros", len(ipca_df))
+        for series_name, bcb_df in bcb_dfs.items():
+            logger.info("%s: %s registros", series_name, len(bcb_df))
         logger.info("Acoes: %s registros", len(stocks_df))
         logger.info("Coleta finalizada com sucesso.")
     except Exception as exc:

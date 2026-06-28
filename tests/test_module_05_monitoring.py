@@ -59,7 +59,7 @@ def main():
 
     assert run_row == ("test_module", "SUCCESS", 10, 8)
     assert freshness_row == ("TEST_SOURCE", "test_dataset", 8)
-    assert freshness_count == 6
+    assert freshness_count == 9
 
     print("\nTeste do Modulo 5 concluido com sucesso.")
 

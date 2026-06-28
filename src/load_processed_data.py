@@ -17,6 +17,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--selic-file", default=str(OUTPUT_FILES["selic_daily"]))
     parser.add_argument("--ipca-file", default=str(OUTPUT_FILES["ipca_monthly"]))
+    parser.add_argument("--usd-ptax-file", default=str(OUTPUT_FILES["usd_brl_ptax_sell_daily"]))
+    parser.add_argument("--cdi-file", default=str(OUTPUT_FILES["cdi_daily"]))
     parser.add_argument("--stocks-file", default=str(OUTPUT_FILES["stock_prices_daily"]))
     parser.add_argument("--database-file", default=str(PROCESSED_DB_FILE))
     parser.add_argument("--append", action="store_true")
@@ -39,6 +41,7 @@ def main():
             database_file=Path(args.database_file),
             schema_file=SCHEMA_FILE,
             replace_database=replace_database,
+            extra_bcb_files=[Path(args.usd_ptax_file), Path(args.cdi_file)],
         )
         refresh_source_freshness_from_processed_db(Path(args.database_file))
 

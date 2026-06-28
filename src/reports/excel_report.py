@@ -32,11 +32,25 @@ def _read_sql(database_file, query):
 def load_report_data(database_file):
     selic_df = _read_sql(database_file, "SELECT reference_date, value AS selic_daily_value FROM vw_bcb_series_values WHERE series_name = 'selic_daily' ORDER BY reference_date")
     ipca_df = _read_sql(database_file, "SELECT reference_date, value AS ipca_monthly_value FROM vw_bcb_series_values WHERE series_name = 'ipca_monthly' ORDER BY reference_date")
-    stocks_df = _read_sql(database_file, "SELECT reference_date, ticker, open_price, high_price, low_price, close_price, adjusted_close_price, volume FROM vw_b3_stock_prices WHERE ticker IN ('PETR4.SA', 'VALE3.SA', 'ITUB4.SA') ORDER BY reference_date, ticker")
+    bcb_series_df = _read_sql(database_file, "SELECT series_name, description, frequency, reference_date, value FROM vw_bcb_series_values ORDER BY series_name, reference_date")
+    bcb_snapshot_df = _read_sql(database_file, "SELECT * FROM vw_bcb_latest_snapshot ORDER BY series_name")
+    b3_returns_df = _read_sql(database_file, "SELECT * FROM vw_b3_asset_returns ORDER BY asset_type, ticker")
+    stocks_df = _read_sql(database_file, "SELECT reference_date, ticker, asset_type, open_price, high_price, low_price, close_price, adjusted_close_price, volume FROM vw_b3_stock_prices ORDER BY reference_date, ticker")
     selic_df["reference_date"] = pd.to_datetime(selic_df["reference_date"])
     ipca_df["reference_date"] = pd.to_datetime(ipca_df["reference_date"])
+    bcb_series_df["reference_date"] = pd.to_datetime(bcb_series_df["reference_date"])
+    bcb_snapshot_df["last_available_date"] = pd.to_datetime(bcb_snapshot_df["last_available_date"])
+    b3_returns_df["start_date"] = pd.to_datetime(b3_returns_df["start_date"])
+    b3_returns_df["end_date"] = pd.to_datetime(b3_returns_df["end_date"])
     stocks_df["reference_date"] = pd.to_datetime(stocks_df["reference_date"])
-    return {"selic": selic_df, "ipca": ipca_df, "stocks": stocks_df}
+    return {
+        "selic": selic_df,
+        "ipca": ipca_df,
+        "bcb_series": bcb_series_df,
+        "bcb_snapshot": bcb_snapshot_df,
+        "b3_returns": b3_returns_df,
+        "stocks": stocks_df,
+    }
 
 def build_executive_metrics(data):
     selic_df = data["selic"].copy()
@@ -44,6 +58,7 @@ def build_executive_metrics(data):
     stocks_df = data["stocks"].copy()
     latest = selic_df.sort_values("reference_date").iloc[-1]
     latest_selic = {"date": latest["reference_date"], "value": float(latest["selic_daily_value"])}
+    bcb_snapshot = data["bcb_snapshot"].set_index("series_name")
     ipca_2024 = ipca_df[ipca_df["reference_date"].dt.year == 2024]
     ipca_acc = ((ipca_2024["ipca_monthly_value"] / 100 + 1).prod() - 1) * 100 if not ipca_2024.empty else None
     stock_returns = []
@@ -53,7 +68,13 @@ def build_executive_metrics(data):
         last_price = float(tdf.iloc[-1]["adjusted_close_price"])
         return_pct = ((last_price / first_price) - 1) * 100 if first_price != 0 else None
         stock_returns.append({"ticker": ticker, "start_date": tdf.iloc[0]["reference_date"], "end_date": tdf.iloc[-1]["reference_date"], "first_adjusted_close": first_price, "last_adjusted_close": last_price, "return_pct": return_pct})
-    return {"latest_selic": latest_selic, "ipca_accumulated_2024": ipca_acc, "stock_returns": stock_returns}
+    return {
+        "latest_selic": latest_selic,
+        "latest_usd_ptax": bcb_snapshot.loc["usd_brl_ptax_sell_daily"].to_dict() if "usd_brl_ptax_sell_daily" in bcb_snapshot.index else None,
+        "latest_cdi": bcb_snapshot.loc["cdi_daily"].to_dict() if "cdi_daily" in bcb_snapshot.index else None,
+        "ipca_accumulated_2024": ipca_acc,
+        "stock_returns": stock_returns,
+    }
 
 def _write_dataframe(worksheet, df, start_row, start_col, table_name=None):
     df = df.copy()
@@ -111,9 +132,19 @@ def create_summary_sheet(workbook, metrics, data):
     ws["C9"] = metrics["latest_selic"]["date"].date()
     ws["A10"] = "IPCA acumulado 2024"
     ws["B10"] = (metrics["ipca_accumulated_2024"] / 100) if metrics["ipca_accumulated_2024"] else None
+    ws["A11"] = "Dolar PTAX venda"
+    ws["B11"] = metrics["latest_usd_ptax"]["latest_value"] if metrics["latest_usd_ptax"] else None
+    ws["C11"] = metrics["latest_usd_ptax"]["last_available_date"].date() if metrics["latest_usd_ptax"] else None
+    ws["A12"] = "CDI diario"
+    ws["B12"] = metrics["latest_cdi"]["latest_value"] if metrics["latest_cdi"] else None
+    ws["C12"] = metrics["latest_cdi"]["last_available_date"].date() if metrics["latest_cdi"] else None
     ws["B9"].number_format = "0.000000"
     ws["C9"].number_format = "dd/mm/yyyy"
     ws["B10"].number_format = "0.00%"
+    ws["B11"].number_format = "R$ #,##0.0000"
+    ws["C11"].number_format = "dd/mm/yyyy"
+    ws["B12"].number_format = "0.000000"
+    ws["C12"].number_format = "dd/mm/yyyy"
     ws["H7"] = "Volume de dados"
     ws["H7"].fill = SECTION_FILL
     ws["H7"].font = SECTION_FONT
@@ -125,6 +156,8 @@ def create_summary_sheet(workbook, metrics, data):
     ws["I11"] = len(data["stocks"])
     ws["H12"] = "Tickers"
     ws["I12"] = data["stocks"]["ticker"].nunique()
+    ws["H13"] = "Series BCB"
+    ws["I13"] = data["bcb_series"]["series_name"].nunique()
     returns_df = pd.DataFrame(metrics["stock_returns"])[["ticker", "start_date", "end_date", "first_adjusted_close", "last_adjusted_close", "return_pct"]]
     returns_df["return_pct"] = returns_df["return_pct"] / 100
     ws["A15"] = "Retorno das acoes no periodo"
@@ -185,14 +218,14 @@ def create_stocks_sheet(workbook, stocks_df):
     df = stocks_df.rename(columns={"reference_date": "data", "open_price": "abertura", "high_price": "maxima", "low_price": "minima", "close_price": "fechamento", "adjusted_close_price": "fechamento_ajustado", "volume": "volume"})
     last_row, _ = _write_dataframe(ws, df, 3, 1, "tbl_b3_quotes")
     _fmt_date(ws, "A", 4, last_row)
-    for col in ["C", "D", "E", "F", "G"]:
+    for col in ["D", "E", "F", "G", "H"]:
         _fmt_num(ws, col, 4, last_row, "R$ #,##0.00")
-    _fmt_num(ws, "H", 4, last_row, "#,##0")
+    _fmt_num(ws, "I", 4, last_row, "#,##0")
     pivot_df = stocks_df.pivot_table(index="reference_date", columns="ticker", values="close_price", aggfunc="last").reset_index().sort_values("reference_date")
     pivot_df = pivot_df.rename(columns={"reference_date": "data"})
     pivot_last_row, pivot_last_col = _write_dataframe(ws, pivot_df, 3, 10, "tbl_b3_chart_prices")
     chart = LineChart()
-    chart.title = "Fechamento diario - PETR4, VALE3, ITUB4"
+    chart.title = "Fechamento diario - ativos e benchmarks"
     chart.height = 12
     chart.width = 26
     chart.add_data(Reference(ws, min_col=11, max_col=pivot_last_col, min_row=3, max_row=pivot_last_row), titles_from_data=True)
@@ -200,6 +233,42 @@ def create_stocks_sheet(workbook, stocks_df):
     ws.add_chart(chart, "J20")
     ws.freeze_panes = "A4"
     _format_worksheet_columns(ws, 22)
+
+
+def create_benchmarks_sheet(workbook, data):
+    ws = workbook.create_sheet("Benchmarks")
+    ws["A1"] = "Benchmarks e Macro"
+    ws["A1"].fill = TITLE_FILL
+    ws["A1"].font = TITLE_FONT
+
+    ws["A3"] = "Snapshot BCB"
+    ws["A3"].fill = SECTION_FILL
+    ws["A3"].font = SECTION_FONT
+    bcb_snapshot_df = data["bcb_snapshot"].rename(columns={
+        "series_name": "serie",
+        "description": "descricao",
+        "frequency": "frequencia",
+        "last_available_date": "ultima_data",
+        "latest_value": "ultimo_valor",
+    })
+    snapshot_last_row, _ = _write_dataframe(ws, bcb_snapshot_df, 5, 1, "tbl_bcb_snapshot")
+    _fmt_date(ws, "D", 6, snapshot_last_row)
+    _fmt_num(ws, "E", 6, snapshot_last_row, "0.000000")
+
+    ws["H3"] = "Retorno B3 no periodo"
+    ws["H3"].fill = SECTION_FILL
+    ws["H3"].font = SECTION_FONT
+    returns_df = data["b3_returns"].copy()
+    returns_df["return_pct"] = returns_df["return_pct"] / 100
+    returns_last_row, _ = _write_dataframe(ws, returns_df, 5, 8, "tbl_b3_returns")
+    for r in range(6, returns_last_row + 1):
+        ws[f"J{r}"].number_format = "dd/mm/yyyy"
+        ws[f"K{r}"].number_format = "dd/mm/yyyy"
+        ws[f"L{r}"].number_format = "R$ #,##0.00"
+        ws[f"M{r}"].number_format = "R$ #,##0.00"
+        ws[f"N{r}"].number_format = "0.00%"
+
+    _format_worksheet_columns(ws, 28)
 
 def create_financial_report(database_file, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -210,12 +279,14 @@ def create_financial_report(database_file, output_file):
     create_selic_sheet(wb, data["selic"])
     create_ipca_sheet(wb, data["ipca"])
     create_stocks_sheet(wb, data["stocks"])
+    create_benchmarks_sheet(wb, data)
     wb.save(output_file)
     return {
         "output_file": str(output_file),
         "selic_rows": len(data["selic"]),
         "ipca_rows": len(data["ipca"]),
         "stock_rows": len(data["stocks"]),
+        "bcb_series_rows": len(data["bcb_series"]),
         "tickers": sorted(data["stocks"]["ticker"].unique().tolist()),
         "latest_selic_date": metrics["latest_selic"]["date"].strftime("%Y-%m-%d"),
         "latest_selic_value": metrics["latest_selic"]["value"],

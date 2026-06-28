@@ -36,6 +36,7 @@ def main():
         logger.info("Arquivo : %s", summary["output_file"])
         logger.info("Selic   : %s registros", summary["selic_rows"])
         logger.info("IPCA    : %s registros", summary["ipca_rows"])
+        logger.info("BCB     : %s registros", summary["bcb_series_rows"])
         logger.info("Acoes   : %s registros", summary["stock_rows"])
         logger.info("Tickers : %s", ", ".join(summary["tickers"]))
         logger.info("Selic   : %.6f em %s", summary["latest_selic_value"], summary["latest_selic_date"])

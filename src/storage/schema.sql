@@ -129,3 +129,40 @@ SELECT ticker, reference_month, trading_days, avg_close_price, min_close_price,
             THEN ROUND(((last_close_price / first_close_price) - 1) * 100, 4)
             ELSE NULL END AS monthly_return_pct
 FROM monthly;
+
+DROP VIEW IF EXISTS vw_bcb_latest_snapshot;
+CREATE VIEW vw_bcb_latest_snapshot AS
+WITH ranked AS (
+    SELECT series_name, description, frequency, reference_date, value,
+           ROW_NUMBER() OVER (PARTITION BY series_name ORDER BY reference_date DESC) AS rn
+    FROM vw_bcb_series_values
+)
+SELECT series_name, description, frequency, reference_date AS last_available_date,
+       value AS latest_value
+FROM ranked
+WHERE rn = 1;
+
+DROP VIEW IF EXISTS vw_b3_asset_returns;
+CREATE VIEW vw_b3_asset_returns AS
+WITH ranked AS (
+    SELECT ticker, asset_type, reference_date, adjusted_close_price,
+           ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY reference_date ASC) AS rn_first,
+           ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY reference_date DESC) AS rn_last
+    FROM vw_b3_stock_prices
+),
+first_last AS (
+    SELECT ticker, asset_type,
+           MAX(CASE WHEN rn_first = 1 THEN reference_date END) AS start_date,
+           MAX(CASE WHEN rn_last = 1 THEN reference_date END) AS end_date,
+           MAX(CASE WHEN rn_first = 1 THEN adjusted_close_price END) AS first_adjusted_close,
+           MAX(CASE WHEN rn_last = 1 THEN adjusted_close_price END) AS last_adjusted_close
+    FROM ranked
+    GROUP BY ticker, asset_type
+)
+SELECT ticker, asset_type, start_date, end_date,
+       ROUND(first_adjusted_close, 6) AS first_adjusted_close,
+       ROUND(last_adjusted_close, 6) AS last_adjusted_close,
+       CASE WHEN first_adjusted_close > 0
+            THEN ROUND(((last_adjusted_close / first_adjusted_close) - 1) * 100, 4)
+            ELSE NULL END AS return_pct
+FROM first_last;

@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 import pandas as pd
 
+from config import BCB_SERIES
+
 def _now():
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -38,20 +40,17 @@ def _get_source_id(conn, source_name):
         raise ValueError(f"Fonte nao encontrada: {source_name}")
     return int(row[0])
 
-def _insert_bcb_series_dimensions(conn, selic_df, ipca_df):
+def _insert_bcb_series_dimensions(conn, bcb_df):
     source_id = _get_source_id(conn, "BCB_SGS")
-    bcb_df = pd.concat([selic_df, ipca_df], ignore_index=True)
     series_df = bcb_df[["series_code", "series_name"]].drop_duplicates().sort_values("series_code")
     rows = []
     for _, row in series_df.iterrows():
         series_code = int(row["series_code"])
         series_name = str(row["series_name"])
-        if series_name == "selic_daily":
-            description, frequency, unit = "Taxa Selic diaria", "daily", "percentual ao dia"
-        elif series_name == "ipca_monthly":
-            description, frequency, unit = "IPCA mensal", "monthly", "percentual ao mes"
-        else:
-            description, frequency, unit = series_name, "unknown", None
+        metadata = BCB_SERIES.get(series_name, {})
+        description = metadata.get("description", series_name)
+        frequency = metadata.get("frequency", "unknown")
+        unit = "percentual ao mes" if frequency == "monthly" else "percentual/valor diario"
         rows.append((source_id, series_code, series_name, description, frequency, unit))
     sql = "INSERT INTO dim_bcb_series (source_id, series_code, series_name, description, frequency, unit) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(source_id, series_code) DO UPDATE SET series_name = excluded.series_name, description = excluded.description, frequency = excluded.frequency, unit = excluded.unit"
     conn.executemany(sql, rows)
@@ -59,7 +58,10 @@ def _insert_bcb_series_dimensions(conn, selic_df, ipca_df):
 def _insert_b3_ticker_dimensions(conn, stocks_df):
     source_id = _get_source_id(conn, "YAHOO_FINANCE")
     tickers = sorted(stocks_df["ticker"].dropna().unique())
-    rows = [(source_id, ticker, "B3", "BRL", "EQUITY") for ticker in tickers]
+    rows = [
+        (source_id, ticker, "B3", "BRL", "INDEX" if str(ticker).startswith("^") else "EQUITY")
+        for ticker in tickers
+    ]
     sql = "INSERT INTO dim_b3_ticker (source_id, ticker, market, currency, asset_type) VALUES (?, ?, ?, ?, ?) ON CONFLICT(source_id, ticker) DO UPDATE SET market = excluded.market, currency = excluded.currency, asset_type = excluded.asset_type"
     conn.executemany(sql, rows)
 
@@ -71,10 +73,9 @@ def _get_ticker_id_map(conn):
     rows = conn.execute("SELECT ticker, ticker_id FROM dim_b3_ticker").fetchall()
     return {str(t): int(tid) for t, tid in rows}
 
-def _insert_bcb_facts(conn, selic_df, ipca_df):
+def _insert_bcb_facts(conn, bcb_df):
     series_id_map = _get_bcb_series_id_map(conn)
     loaded_at = _now()
-    bcb_df = pd.concat([selic_df, ipca_df], ignore_index=True)
     bcb_df["series_code"] = pd.to_numeric(bcb_df["series_code"], errors="raise").astype(int)
     bcb_df["value"] = pd.to_numeric(bcb_df["value"], errors="raise")
     rows = []
@@ -105,20 +106,34 @@ def _insert_b3_stock_facts(conn, stocks_df):
 def _count_rows(conn, table_name):
     return int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
 
-def load_processed_database(selic_file, ipca_file, stocks_file, database_file, schema_file, replace_database=True):
+def _read_optional_bcb_files(extra_bcb_files):
+    dataframes = []
+    for file_path in extra_bcb_files or []:
+        file_path = Path(file_path)
+        if not file_path.exists():
+            continue
+        dataframes.append(_standardize_date_column(_read_csv(file_path)))
+    return dataframes
+
+
+def load_processed_database(selic_file, ipca_file, stocks_file, database_file, schema_file, replace_database=True, extra_bcb_files=None):
     if replace_database and database_file.exists():
         database_file.unlink()
     database_file.parent.mkdir(parents=True, exist_ok=True)
     selic_df = _standardize_date_column(_read_csv(selic_file))
     ipca_df = _standardize_date_column(_read_csv(ipca_file))
+    bcb_df = pd.concat(
+        [selic_df, ipca_df, *_read_optional_bcb_files(extra_bcb_files)],
+        ignore_index=True,
+    )
     stocks_df = _standardize_date_column(_read_csv(stocks_file))
     with sqlite3.connect(database_file) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         _execute_schema(conn, schema_file)
         _insert_sources(conn)
-        _insert_bcb_series_dimensions(conn, selic_df, ipca_df)
+        _insert_bcb_series_dimensions(conn, bcb_df)
         _insert_b3_ticker_dimensions(conn, stocks_df)
-        inserted_bcb = _insert_bcb_facts(conn, selic_df, ipca_df)
+        inserted_bcb = _insert_bcb_facts(conn, bcb_df)
         inserted_stocks = _insert_b3_stock_facts(conn, stocks_df)
         conn.commit()
         return {
