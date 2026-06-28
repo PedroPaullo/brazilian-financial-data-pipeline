@@ -14,6 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import (
     ALERTS_CSV_FILE,
     ALERTS_JSON_FILE,
+    COVERAGE_REPORT_FILE,
+    COVERAGE_SUMMARY_FILE,
     FINANCIAL_REPORT_FILE,
     OPERATIONS_DB_FILE,
     PROCESSED_DB_FILE,
@@ -102,6 +104,27 @@ def generate_operational_alerts(
         _alert(alerts, "CRITICAL", "data_quality", "validation", "quality_summary", f"Validacao possui {summary.get('fail')} FAIL.", "Investigue reports/validation/data_quality_results.csv.")
     elif int(summary.get("warn", 0)) > 0:
         _alert(alerts, "WARNING", "data_quality", "validation", "quality_summary", f"Validacao possui {summary.get('warn')} WARN.", "Revise gaps e warnings antes de divulgar resultados.")
+
+    coverage_summary = _read_json(COVERAGE_SUMMARY_FILE)
+    if not coverage_summary:
+        _alert(alerts, "WARNING", "missing_artifact", "coverage", "coverage_summary", "Resumo de cobertura historica nao encontrado.", "Execute python src\\coverage_report.py.")
+    elif int(coverage_summary.get("critical", 0)) > 0:
+        _alert(alerts, "CRITICAL", "data_coverage", "coverage", "summary", f"Cobertura possui {coverage_summary.get('critical')} dataset(s) CRITICAL.", "Revise reports/coverage/data_coverage_report.csv.")
+    elif int(coverage_summary.get("warning", 0)) > 0:
+        _alert(alerts, "WARNING", "data_coverage", "coverage", "summary", f"Cobertura possui {coverage_summary.get('warning')} dataset(s) WARNING.", "Revise gaps historicos antes de divulgar resultados.")
+
+    coverage_results = _read_csv(COVERAGE_REPORT_FILE)
+    if not coverage_results.empty:
+        for _, row in coverage_results[coverage_results["status"].isin(["WARNING", "CRITICAL"])].iterrows():
+            _alert(
+                alerts,
+                str(row["status"]),
+                "data_coverage_dataset",
+                str(row.get("source_name", "")),
+                str(row.get("dataset_name", "")),
+                f"{row.get('dataset_name')} com cobertura {row.get('coverage_pct')}% no periodo.",
+                str(row.get("missing_sample") or "Verifique reports/coverage/data_coverage_missing_dates.csv."),
+            )
 
     quality_results = _read_csv(VALIDATION_OUTPUT_FILES["quality_results"])
     for _, row in quality_results[quality_results.get("status", pd.Series(dtype=str)).isin(["WARN", "FAIL"])].iterrows():

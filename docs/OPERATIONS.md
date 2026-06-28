@@ -15,8 +15,20 @@ python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --skip-collection
 Specific modules:
 
 ```powershell
-python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --modules validate load report
+python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --modules validate load coverage report
 ```
+
+## Coverage
+
+```powershell
+python src\coverage_report.py --start 2024-01-01 --end 2024-12-31
+```
+
+Coverage artifacts are written to:
+
+- `reports/coverage/data_coverage_report.csv`
+- `reports/coverage/data_coverage_summary.json`
+- `reports/coverage/data_coverage_missing_dates.csv`
 
 ## Scheduler
 
@@ -40,6 +52,8 @@ Alerts are written to:
 
 - `reports/operations/alerts.json`
 - `reports/operations/alerts.csv`
+
+Coverage warnings and critical gaps are also included in operational alerts.
 
 Alert severities:
 

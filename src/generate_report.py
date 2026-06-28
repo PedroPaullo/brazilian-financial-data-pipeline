@@ -38,6 +38,7 @@ def main():
         logger.info("IPCA    : %s registros", summary["ipca_rows"])
         logger.info("BCB     : %s registros", summary["bcb_series_rows"])
         logger.info("Acoes   : %s registros", summary["stock_rows"])
+        logger.info("Cobertura: %s datasets", summary["coverage_datasets"])
         logger.info("Tickers : %s", ", ".join(summary["tickers"]))
         logger.info("Selic   : %.6f em %s", summary["latest_selic_value"], summary["latest_selic_date"])
         if summary["ipca_accumulated_2024"]:

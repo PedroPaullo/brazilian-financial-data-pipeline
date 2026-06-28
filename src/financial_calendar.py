@@ -16,6 +16,41 @@ STATUS_WARNING = "WARNING"
 STATUS_CRITICAL = "CRITICAL"
 STATUS_UNKNOWN = "UNKNOWN"
 
+FALLBACK_BR_HOLIDAYS = {
+    # National and banking-market relevant holidays used when the holidays
+    # package is not available in the local environment.
+    date(2024, 1, 1),
+    date(2024, 2, 12),
+    date(2024, 2, 13),
+    date(2024, 3, 29),
+    date(2024, 5, 1),
+    date(2024, 5, 30),
+    date(2024, 11, 15),
+    date(2024, 11, 20),
+    date(2024, 12, 25),
+    date(2025, 1, 1),
+    date(2025, 3, 3),
+    date(2025, 3, 4),
+    date(2025, 4, 18),
+    date(2025, 4, 21),
+    date(2025, 5, 1),
+    date(2025, 6, 19),
+    date(2025, 11, 20),
+    date(2025, 12, 25),
+    date(2026, 1, 1),
+    date(2026, 2, 16),
+    date(2026, 2, 17),
+    date(2026, 4, 3),
+    date(2026, 4, 21),
+    date(2026, 5, 1),
+    date(2026, 6, 4),
+    date(2026, 9, 7),
+    date(2026, 10, 12),
+    date(2026, 11, 2),
+    date(2026, 11, 20),
+    date(2026, 12, 25),
+}
+
 
 def _to_date(value) -> date:
     return pd.to_datetime(value).date()
@@ -26,10 +61,11 @@ def is_weekday(value) -> bool:
 
 
 def is_brazil_holiday(value) -> bool:
+    value_date = _to_date(value)
     if holidays is None:
-        return False
+        return value_date in FALLBACK_BR_HOLIDAYS
 
-    return _to_date(value) in holidays.country_holidays("BR")
+    return value_date in holidays.country_holidays("BR")
 
 
 def is_brazil_business_day(value) -> bool:

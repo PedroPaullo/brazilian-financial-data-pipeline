@@ -11,6 +11,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from analytics.market_metrics import build_asset_performance_summary
+from config import COVERAGE_REPORT_FILE
+from coverage_report import build_coverage_report
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -45,6 +47,12 @@ def load_report_data(database_file):
     b3_returns_df["start_date"] = pd.to_datetime(b3_returns_df["start_date"])
     b3_returns_df["end_date"] = pd.to_datetime(b3_returns_df["end_date"])
     stocks_df["reference_date"] = pd.to_datetime(stocks_df["reference_date"])
+    if COVERAGE_REPORT_FILE.exists():
+        coverage_df = pd.read_csv(COVERAGE_REPORT_FILE)
+    else:
+        start_date = min(bcb_series_df["reference_date"].min(), stocks_df["reference_date"].min())
+        end_date = max(bcb_series_df["reference_date"].max(), stocks_df["reference_date"].max())
+        coverage_df, _ = build_coverage_report(bcb_series_df, stocks_df, start_date, end_date)
     return {
         "selic": selic_df,
         "ipca": ipca_df,
@@ -52,6 +60,7 @@ def load_report_data(database_file):
         "bcb_snapshot": bcb_snapshot_df,
         "b3_returns": b3_returns_df,
         "stocks": stocks_df,
+        "coverage": coverage_df,
     }
 
 def build_executive_metrics(data):
@@ -331,6 +340,35 @@ def create_performance_sheet(workbook, data):
     ws.add_chart(drawdown_chart, "M20")
     _format_worksheet_columns(ws, 24)
 
+
+def create_coverage_sheet(workbook, data):
+    ws = workbook.create_sheet("Cobertura")
+    ws["A1"] = "Cobertura Historica"
+    ws["A1"].fill = TITLE_FILL
+    ws["A1"].font = TITLE_FONT
+
+    coverage_df = data.get("coverage", pd.DataFrame()).copy()
+    if coverage_df.empty:
+        ws["A3"] = "Sem dados suficientes para calcular cobertura historica."
+        return
+
+    coverage_df["coverage_pct"] = coverage_df["coverage_pct"] / 100
+    last_row, _ = _write_dataframe(ws, coverage_df, 3, 1, "tbl_data_coverage")
+    for col in ["D", "E", "F", "G", "H", "I"]:
+        _fmt_date(ws, col, 4, last_row)
+    _fmt_num(ws, "M", 4, last_row, "0.00%")
+
+    chart = BarChart()
+    chart.title = "Cobertura historica por dataset"
+    chart.height = 10
+    chart.width = 22
+    chart.add_data(Reference(ws, min_col=13, min_row=3, max_row=last_row), titles_from_data=True)
+    chart.set_categories(Reference(ws, min_col=2, min_row=4, max_row=last_row))
+    ws.add_chart(chart, "R3")
+    ws.freeze_panes = "A4"
+    _format_worksheet_columns(ws, 26)
+
+
 def create_financial_report(database_file, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
     data = load_report_data(database_file)
@@ -341,6 +379,7 @@ def create_financial_report(database_file, output_file):
     create_ipca_sheet(wb, data["ipca"])
     create_stocks_sheet(wb, data["stocks"])
     create_benchmarks_sheet(wb, data)
+    create_coverage_sheet(wb, data)
     create_performance_sheet(wb, data)
     wb.save(output_file)
     return {
@@ -350,6 +389,8 @@ def create_financial_report(database_file, output_file):
         "stock_rows": len(data["stocks"]),
         "bcb_series_rows": len(data["bcb_series"]),
         "tickers": sorted(data["stocks"]["ticker"].unique().tolist()),
+        "coverage_datasets": len(data["coverage"]),
+        "coverage_minimum_pct": data["coverage"]["coverage_pct"].min() if not data["coverage"].empty else None,
         "latest_selic_date": metrics["latest_selic"]["date"].strftime("%Y-%m-%d"),
         "latest_selic_value": metrics["latest_selic"]["value"],
         "ipca_accumulated_2024": metrics["ipca_accumulated_2024"],

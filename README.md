@@ -12,7 +12,7 @@ Dados financeiros públicos brasileiros (Selic, IPCA, cotações B3) estão disp
 
 ## Solução
 
-Pipeline modular em Python que automatiza todo o ciclo: coleta → validação → armazenamento → observabilidade → alertas → analytics → dashboard → relatório.
+Pipeline modular em Python que automatiza todo o ciclo: coleta → validação → armazenamento → cobertura histórica → observabilidade → alertas → analytics → dashboard → relatório.
 
 ## Impacto
 
@@ -20,11 +20,11 @@ Pipeline modular em Python que automatiza todo o ciclo: coleta → validação �
 - 1004 cotações B3/Yahoo Finance coletadas: PETR4, VALE3, ITUB4 e Ibovespa
 - 45 checagens de qualidade executadas com status PASS/WARN/FAIL
 - Dashboard operacional com freshness, qualidade de dados, benchmarks e histórico de execução
-- Orquestrador único, alertas operacionais, lineage de artefatos e analytics de mercado
+- Orquestrador único, cobertura histórica, alertas operacionais, lineage de artefatos e analytics de mercado
 
 ## Arquitetura
 
-coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → observabilidade/SLA → alertas → analytics → dashboard Streamlit → relatório Excel
+coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → cobertura histórica → observabilidade/SLA → alertas → analytics → dashboard Streamlit → relatório Excel
 
 ## Módulos
 
@@ -37,8 +37,9 @@ coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite
 | 5 — Observabilidade | Histórico de execuções e freshness por fonte | src/monitoring.py |
 | 6 — Dashboard | Streamlit com resumo, status, qualidade, benchmarks e séries | src/dashboard.py |
 | 7 — Orquestração | Execução mestre com módulos selecionáveis | src/run_pipeline.py |
-| 8 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
-| 9 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
+| 8 — Cobertura | Backfill histórico, calendário esperado e percentual de preenchimento | src/coverage_report.py |
+| 9 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
+| 10 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
 
 ## Fontes de dados
 
@@ -73,12 +74,13 @@ Também é possível rodar por módulo:
 python src/collect_data.py --start 2024-01-01 --end 2024-12-31
 python src/validate_data.py
 python src/load_processed_data.py
+python src/coverage_report.py --start 2024-01-01 --end 2024-12-31
 python src/generate_report.py
 ```
 
 ## Dashboard
 
-O dashboard Streamlit lê o SQLite final e os artefatos de validação para exibir visão executiva, indicadores de freshness, qualidade dos dados, benchmarks, Selic, IPCA e cotações B3.
+O dashboard Streamlit lê o SQLite final e os artefatos de validação/cobertura para exibir visão executiva, indicadores de freshness, qualidade dos dados, cobertura histórica, benchmarks, Selic, IPCA e cotações B3.
 
 ```powershell
 python -m streamlit run src\dashboard.py
@@ -86,7 +88,7 @@ python -m streamlit run src\dashboard.py
 
 ## Agendamento
 
-O scheduler executa coleta, validação, carga, relatório e alertas automaticamente em dias úteis às 07:00.
+O scheduler executa coleta, validação, carga, cobertura, relatório e alertas automaticamente em dias úteis às 07:00.
 
 ```powershell
 python src/scheduler.py
@@ -108,6 +110,20 @@ As execuções dos módulos são registradas em `data/operations/pipeline_operat
 
 O dashboard usa essas tabelas na página `Status do Pipeline`.
 
+## Cobertura Histórica
+
+```powershell
+python src/coverage_report.py --start 2024-01-01 --end 2024-12-31
+```
+
+A cobertura é salva em:
+
+- `reports/coverage/data_coverage_report.csv`
+- `reports/coverage/data_coverage_summary.json`
+- `reports/coverage/data_coverage_missing_dates.csv`
+
+O dashboard inclui a página `Cobertura Historica` e o Excel inclui a aba `Cobertura`.
+
 ## Alertas e Analytics
 
 ```powershell
@@ -123,6 +139,7 @@ O dashboard inclui páginas de performance, risco, correlação e alertas operac
 - `docs/ARCHITECTURE.md`
 - `docs/OPERATIONS.md`
 - `docs/DATA_QUALITY.md`
+- `docs/DATA_COVERAGE.md`
 
 ## Resultados
 

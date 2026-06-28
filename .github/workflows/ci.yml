@@ -27,6 +27,7 @@ jobs:
           python -m py_compile src/collect_data.py
           python -m py_compile src/validate_data.py
           python -m py_compile src/load_processed_data.py
+          python -m py_compile src/coverage_report.py
           python -m py_compile src/generate_report.py
           python -m py_compile src/dashboard.py
           python -m py_compile src/run_pipeline.py
@@ -37,3 +38,4 @@ jobs:
           python tests/test_module_05_monitoring.py
           python tests/test_module_06_operational_maturity.py
           python tests/test_module_07_financial_analytics.py
+          python tests/test_module_08_data_coverage.py

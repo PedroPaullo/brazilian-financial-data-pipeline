@@ -1,0 +1,13 @@
+{
+    "generated_at": "2026-06-28 13:38:14",
+    "start_date": "2024-01-01",
+    "end_date": "2024-12-31",
+    "datasets": 8,
+    "ok": 8,
+    "warning": 0,
+    "critical": 0,
+    "unknown": 0,
+    "average_coverage_pct": 99.6,
+    "minimum_coverage_pct": 99.21,
+    "overall_status": "OK"
+}

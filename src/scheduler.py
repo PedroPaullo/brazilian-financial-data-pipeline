@@ -21,6 +21,7 @@ PIPELINE_STEPS = (
     ("coleta", [sys.executable, str(SRC_DIR / "collect_data.py")]),
     ("validacao", [sys.executable, str(SRC_DIR / "validate_data.py")]),
     ("armazenamento", [sys.executable, str(SRC_DIR / "load_processed_data.py")]),
+    ("cobertura", [sys.executable, str(SRC_DIR / "coverage_report.py")]),
     ("relatorio", [sys.executable, str(SRC_DIR / "generate_report.py")]),
     ("alertas", [sys.executable, str(SRC_DIR / "alerts.py")]),
 )

@@ -17,13 +17,22 @@ from analytics.market_metrics import (
     calculate_correlation_matrix,
     calculate_max_drawdown,
 )
-from config import ALERTS_CSV_FILE, OPERATIONS_DB_FILE, PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
+from config import (
+    ALERTS_CSV_FILE,
+    COVERAGE_MISSING_DATES_FILE,
+    COVERAGE_REPORT_FILE,
+    OPERATIONS_DB_FILE,
+    PROCESSED_DB_FILE,
+    VALIDATION_OUTPUT_FILES,
+)
+from coverage_report import build_coverage_report
 from monitoring import initialize_monitoring_db
 
 PAGE_OPTIONS = (
     "Resumo Executivo",
     "Status do Pipeline",
     "Qualidade dos Dados",
+    "Cobertura Historica",
     "Benchmarks",
     "Performance & Benchmarks",
     "Risco & Correlacao",
@@ -180,6 +189,22 @@ def load_data_artifacts(operations_db_path: str) -> pd.DataFrame:
 @st.cache_data(show_spinner=True)
 def load_operational_alerts(alerts_csv_path: str) -> pd.DataFrame:
     file_path = Path(alerts_csv_path)
+    if not file_path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(file_path)
+
+
+@st.cache_data(show_spinner=True)
+def load_coverage_report(report_path: str) -> pd.DataFrame:
+    file_path = Path(report_path)
+    if not file_path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(file_path)
+
+
+@st.cache_data(show_spinner=True)
+def load_coverage_missing_dates(missing_dates_path: str) -> pd.DataFrame:
+    file_path = Path(missing_dates_path)
     if not file_path.exists():
         return pd.DataFrame()
     return pd.read_csv(file_path)
@@ -857,6 +882,73 @@ def render_operational_alerts_page() -> None:
     st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
 
+def render_historical_coverage_page(
+    bcb_series_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+) -> None:
+    st.header("Cobertura Historica")
+
+    coverage_df = load_coverage_report(str(COVERAGE_REPORT_FILE))
+    missing_df = load_coverage_missing_dates(str(COVERAGE_MISSING_DATES_FILE))
+
+    if coverage_df.empty:
+        start_date = min(bcb_series_df["reference_date"].min(), stocks_df["reference_date"].min())
+        end_date = max(bcb_series_df["reference_date"].max(), stocks_df["reference_date"].max())
+        coverage_df, missing_df = build_coverage_report(bcb_series_df, stocks_df, start_date, end_date)
+        st.info("Relatorio de cobertura ainda nao encontrado em disco. Exibindo calculo em memoria.")
+
+    stop_if_empty(coverage_df, "Nao ha dados suficientes para calcular cobertura historica.")
+
+    status_counts = coverage_df["status"].value_counts().to_dict()
+    average_coverage = coverage_df["coverage_pct"].dropna().mean()
+    minimum_coverage = coverage_df["coverage_pct"].dropna().min()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Datasets", len(coverage_df))
+    col2.metric("Cobertura media", format_pct(float(average_coverage)) if pd.notna(average_coverage) else "N/D")
+    col3.metric("Menor cobertura", format_pct(float(minimum_coverage)) if pd.notna(minimum_coverage) else "N/D")
+    col4.metric("Gaps", int(coverage_df["missing_observations"].sum()))
+
+    status_col1, status_col2, status_col3 = st.columns(3)
+    status_col1.metric("OK", status_counts.get("OK", 0))
+    status_col2.metric("WARNING", status_counts.get("WARNING", 0))
+    status_col3.metric("CRITICAL", status_counts.get("CRITICAL", 0))
+
+    st.markdown("---")
+    st.subheader("Cobertura por fonte")
+    display_df = coverage_df.copy()
+    for column in ["start_date", "end_date", "first_available_date", "last_available_date"]:
+        if column in display_df.columns:
+            display_df[column] = pd.to_datetime(display_df[column], errors="coerce").dt.strftime("%d/%m/%Y")
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    fig = px.bar(
+        coverage_df.sort_values(["source_name", "dataset_name"]),
+        x="dataset_name",
+        y="coverage_pct",
+        color="status",
+        text="coverage_pct",
+        hover_data=["source_name", "expected_observations", "actual_observations", "missing_observations"],
+        title="Percentual de cobertura historica por dataset",
+        labels={"dataset_name": "Dataset", "coverage_pct": "Cobertura (%)", "status": "Status"},
+    )
+    fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+    fig.update_layout(yaxis_ticksuffix="%")
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Datas esperadas ausentes")
+    if missing_df.empty:
+        st.success("Nenhuma data esperada ausente no periodo analisado.")
+    else:
+        selected_datasets = st.multiselect(
+            "Dataset",
+            options=sorted(missing_df["dataset_name"].unique().tolist()),
+            default=sorted(missing_df["dataset_name"].unique().tolist())[:5],
+        )
+        filtered_missing_df = missing_df[missing_df["dataset_name"].isin(selected_datasets)].copy()
+        st.dataframe(filtered_missing_df, use_container_width=True, hide_index=True)
+
+
 def render_data_quality_page() -> None:
     st.header("Qualidade dos Dados")
 
@@ -1134,6 +1226,8 @@ def main() -> None:
         render_pipeline_status_page(bcb_series_df, selic_df, ipca_df, stocks_df)
     elif page == "Qualidade dos Dados":
         render_data_quality_page()
+    elif page == "Cobertura Historica":
+        render_historical_coverage_page(bcb_series_df, stocks_df)
     elif page == "Benchmarks":
         render_benchmarks_page(bcb_series_df, stocks_df)
     elif page == "Performance & Benchmarks":
