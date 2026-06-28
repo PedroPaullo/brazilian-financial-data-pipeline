@@ -1,0 +1,600 @@
+{
+    "summary": {
+        "run_id": "20260628_152459_pipeline_8af415f8",
+        "git_commit": "8bf6d3a885285ccd6d89a55c39bf9969e5262161",
+        "command": "run_pipeline.py --reconcile-only",
+        "overall_status": "PASSED",
+        "passed": 44,
+        "failed": 0,
+        "skipped": 2,
+        "generated_at": "2026-06-28 15:25:04"
+    },
+    "checks": [
+        {
+            "check_id": "8ba09bf1046547a5bd71234455033d16",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:selic_daily.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\selic_daily.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "c1a28ec1075845f0ab0d58b2bd2e2809",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:ipca_monthly.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\ipca_monthly.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "241dfc39be404a3e8c1eb68e23ee9727",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:usd_brl_ptax_sell_daily.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\usd_brl_ptax_sell_daily.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "2b93a69772c448ccbea00bcf12c2255c",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:cdi_daily.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\cdi_daily.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "e06dae29359d43c58017e11feffa3f35",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:stock_prices_daily.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\b3\\stock_prices_daily.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "0b0d499892524799aac2706675c04d94",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:b3_trading_calendar.csv",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\reference\\b3_trading_calendar.csv"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "cb3ef09657d54800bb116a67720e01a5",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:data_coverage_summary.json",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\coverage\\data_coverage_summary.json"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "9a75e132f7e043ca929d381ac4a63fdc",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "file_exists:financial_report.xlsx",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\financial_report.xlsx"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "562a7368744a4e34888367f5d16982c3",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "sqlite_database_exists",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\processed\\financial_data.db"
+            },
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "check_id": "5942ebafeb99442bbf40b1610066b818",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:dim_source",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "80a957d5be5442d3a8c85a121f13bbfd",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:dim_source",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 3,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "ad4923b8a1aa454eafeef3a9477bb0bb",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:dim_bcb_series",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "a58eb5c38df94e1ab327521032be4f00",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:dim_bcb_series",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 4,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "4827b27075e34cf1b8f6d1e2849e0a62",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:dim_b3_ticker",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "616ac8acdf474bddb8e1143da1ecb6a7",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:dim_b3_ticker",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 4,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "310119f0e6e74a38ab73df3bdeb2661e",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:fact_bcb_series_values",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "b21f5d9afaad45f4bc01321eb587f917",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:fact_bcb_series_values",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 771,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "39c0c90f5b2e4148b0e92dbf48d15c8b",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:fact_b3_stock_prices",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "b409cbe374dd44bb8dc16fff91cf777b",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:fact_b3_stock_prices",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 1004,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "1b8bac74ebb94b558075eeb75f19e313",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:dim_cvm_fund",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "42c041fbc5834db580f585ffe0e6cbed",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:dim_cvm_fund",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "b82f7b26f00a47daaae1ed01a41ba581",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:fact_cvm_fund_daily_report",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "483917cf810a451d825b787f96b8fc40",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:fact_cvm_fund_daily_report",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "3e4c7bcc84234400b7470f0e42f7940b",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:etl_run",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "8776e46091f34a76b5d6bd65298b976e",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:etl_run",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 5,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "380d30e9cd324fcd8ae4c93f7f000a83",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:etl_dataset_version",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "78464fb4de4d475fbf4bb2765489ff42",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:etl_dataset_version",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 9,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "c849fee87a9444dabb97f0f9cc556c49",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:etl_reconciliation_check",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "a25b15f268c14a579ddbd2416be71146",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:etl_reconciliation_check",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 276,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "0b2be5f0cf814bb8a7a616bd9d6a0b26",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_exists:etl_source_file",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "0a31bc4d40ac4ed8805320382277708a",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "table_row_count:etl_source_file",
+            "severity": "INFO",
+            "status": "PASSED",
+            "expected_value": ">=0",
+            "actual_value": 49,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "c68d2ed01b6d4793a39eb804838d3ec2",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "duplicates:fact_bcb_series_values",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "49828cb1a8a14a8bb57213c7695d6251",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "duplicates:fact_b3_stock_prices",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "7c24fcba51954f21a0dc5e02d2f9ad51",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "duplicates:fact_cvm_fund_daily_report",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "61fc4930d1ae4607a07aafdf4f68869d",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "future_dates:fact_bcb_series_values",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "02c5bca364d044578df14fa05d73b903",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "future_dates:fact_b3_stock_prices",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "2272e627963a47559419dabe062866ee",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "future_dates:fact_cvm_fund_daily_report",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "f82bc31ad1d4453ba596ca5cf27a5c69",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "nulls:fact_bcb_series_values.reference_date",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "b0290f38e61c476697bce993704b09d4",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "nulls:fact_b3_stock_prices.reference_date",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "681905b1218845e0bebc78dc0f7901f3",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "nulls:dim_b3_ticker.ticker",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "16ad47fe8bf24dd597e40a21394cc443",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "nulls:dim_cvm_fund.fund_cnpj",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": 0,
+            "actual_value": 0,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "884cc2c4b98542f2af8dbce3d92a2ca7",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "cvm_optional_data",
+            "severity": "INFO",
+            "status": "SKIPPED",
+            "expected_value": "CVM files loaded",
+            "actual_value": "not loaded",
+            "difference_value": "",
+            "details": {
+                "reason": "CVM opcional ausente ou nao coletado nesta execucao."
+            },
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "c59a2e73cf744fdbbb1dae35518d8de6",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "anbima_configuration",
+            "severity": "INFO",
+            "status": "SKIPPED",
+            "expected_value": "ANBIMA enabled",
+            "actual_value": "ANBIMA_ENABLE=false",
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "76fbd6e65d1e4ce38312218fc242b448",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "manifest_created",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": "exists",
+            "actual_value": true,
+            "difference_value": "",
+            "details": {
+                "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\manifests\\runs\\20260628_152459_pipeline_8af415f8.json"
+            },
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "26a67c0ffdfe481ea10c4c39350d10ed",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "dataset_versions_registered",
+            "severity": "ERROR",
+            "status": "PASSED",
+            "expected_value": ">0",
+            "actual_value": 5,
+            "difference_value": "",
+            "details": {},
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "check_id": "66883ef8d7af499fa57899ac3abe300e",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "check_name": "coverage_summary_status",
+            "severity": "WARNING",
+            "status": "PASSED",
+            "expected_value": "OK",
+            "actual_value": "OK",
+            "difference_value": "",
+            "details": {
+                "generated_at": "2026-06-28 15:24:11",
+                "start_date": "2024-01-01",
+                "end_date": "2024-12-31",
+                "datasets": 8,
+                "ok": 8,
+                "warning": 0,
+                "critical": 0,
+                "unknown": 0,
+                "average_coverage_pct": 100.0,
+                "minimum_coverage_pct": 100.0,
+                "overall_status": "OK"
+            },
+            "created_at": "2026-06-28 15:25:03"
+        }
+    ]
+}

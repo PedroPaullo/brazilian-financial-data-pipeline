@@ -89,5 +89,9 @@ def main():
     print("\nTeste do Modulo 8 concluido com sucesso.")
 
 
+def test_module_08_data_coverage():
+    main()
+
+
 if __name__ == "__main__":
     main()

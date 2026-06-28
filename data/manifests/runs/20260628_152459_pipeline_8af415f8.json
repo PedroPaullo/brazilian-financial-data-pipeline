@@ -1,0 +1,219 @@
+{
+    "run_id": "20260628_152459_pipeline_8af415f8",
+    "started_at": "2026-06-28 15:24:59",
+    "finished_at": "2026-06-28 15:25:04",
+    "status": "PASSED",
+    "git_commit": "8bf6d3a885285ccd6d89a55c39bf9969e5262161",
+    "python_version": "3.12.7",
+    "platform": "Windows-11-10.0.26200-SP0",
+    "command": "run_pipeline.py --reconcile-only",
+    "parameters": {
+        "start": "2024-01-01",
+        "end": "2024-12-31",
+        "skip_collection": false,
+        "skip_report": false,
+        "include_cvm": false,
+        "cvm_year_month": null,
+        "cvm_top_n": null,
+        "enable_manifest": false,
+        "reconcile": false,
+        "reconcile_only": true,
+        "run_id": null,
+        "database_backend": "sqlite",
+        "database_url": null,
+        "modules": null
+    },
+    "database_backend": "sqlite",
+    "sources_enabled": [
+        "BCB_SGS",
+        "YAHOO_FINANCE"
+    ],
+    "sources_skipped": [
+        "CVM",
+        "ANBIMA"
+    ],
+    "datasets_created": [
+        {
+            "dataset_version_id": "fa6a57c561a2b74f55b56aa19b70f541a101c20a4ca5aaeee5a19d745843133e",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "dataset_name": "bcb_series_values",
+            "source_name": "BCB_SGS",
+            "period_start": "2024-01-01",
+            "period_end": "2024-12-31",
+            "row_count": 771,
+            "checksum": "66d0453cfec8a9f16b5a8899c6bdd1c0bcb958a8f3932412dd8785c0567e03d4",
+            "storage_path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\processed\\financial_data.db",
+            "schema_hash": "ea7c3c58249d2dd72d04b14b44ddaee81e86bb376ee874abc35db8c95f53ab26",
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "dataset_version_id": "71d50938940001cc89a564f9c622e7bd5c05a491d3e69d7b0e282764b6a546aa",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "dataset_name": "b3_stock_prices",
+            "source_name": "YAHOO_FINANCE",
+            "period_start": "2024-01-02",
+            "period_end": "2024-12-30",
+            "row_count": 1004,
+            "checksum": "8e90dba84720e2a0eabd0bb6a87b2ceb05c2554dd2e041c1f4dfe1f22687553f",
+            "storage_path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\processed\\financial_data.db",
+            "schema_hash": "70db5e47b822a1a5e2ec30eedf9075b9c7b26762d1c51518ff005757febd0a1a",
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "dataset_version_id": "c19537fc18afb3d479ef53ff48df8008b405d73db9bc841fce141fbada2a41b5",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "dataset_name": "b3_trading_calendar",
+            "source_name": "B3_REFERENCE",
+            "period_start": null,
+            "period_end": null,
+            "row_count": null,
+            "checksum": "7a748bf5270027f52d8c82549990f7d2eb64bd4abd6af2a74e807dd84d01a833",
+            "storage_path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\reference\\b3_trading_calendar.csv",
+            "schema_hash": "a69ca878b89b16435c566d73407375b70c9cdeec61201dada1e74fbfd2793320",
+            "created_at": "2026-06-28 15:25:02"
+        },
+        {
+            "dataset_version_id": "17fe710f21c4cfd966ffa9c3b109439c5d081259c053878fec203bbf462791ec",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "dataset_name": "financial_report",
+            "source_name": "PIPELINE_EXPORT",
+            "period_start": null,
+            "period_end": null,
+            "row_count": null,
+            "checksum": "d1d091e426556bc18a5ff51112a59e7f89ff7455eb218a1a202b9ebf35a4b2d8",
+            "storage_path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\financial_report.xlsx",
+            "schema_hash": "1d231d15bc53080e60c7ecfaaeef7452bbd3f2402fd3ed54d013c72ee829b4b7",
+            "created_at": "2026-06-28 15:25:03"
+        },
+        {
+            "dataset_version_id": "6e1793fd780e14ab94cad6fbedc28f76ad8ad1a93ec4e420ec7bde43c552cdc3",
+            "run_id": "20260628_152459_pipeline_8af415f8",
+            "dataset_name": "coverage_report",
+            "source_name": "PIPELINE_EXPORT",
+            "period_start": null,
+            "period_end": null,
+            "row_count": null,
+            "checksum": "19f44bcc6a493cf6637de7749a10a1087fffbb408950cd718d7f37e15d7b6cc9",
+            "storage_path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\coverage\\data_coverage_report.csv",
+            "schema_hash": "6a406a8ed6e0d381a614b88bce8692a15c33dde8b8c0b7f47e7b67920463151e",
+            "created_at": "2026-06-28 15:25:03"
+        }
+    ],
+    "row_counts": {},
+    "date_range": {
+        "start": "2024-01-01",
+        "end": "2024-12-31"
+    },
+    "input_files": [
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\selic_daily.csv",
+            "exists": true,
+            "file_size_bytes": 19443,
+            "checksum": "403d0ded633d0197872a4a2469080515fb964878524ca6e39ea3c8f1b83fde12",
+            "modified_at": "2026-06-28 12:25:41"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\ipca_monthly.csv",
+            "exists": true,
+            "file_size_bytes": 957,
+            "checksum": "59f09c0d5d80d30c98ee309a26332698416d2b66a98f7b10818cff08e2e4c5f6",
+            "modified_at": "2026-06-28 12:25:43"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\usd_brl_ptax_sell_daily.csv",
+            "exists": true,
+            "file_size_bytes": 21782,
+            "checksum": "86f15de1b0165aea098fd212b75f88a9eb564ac735ac183f3a0017ec6abc2514",
+            "modified_at": "2026-06-28 12:25:46"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\bcb\\cdi_daily.csv",
+            "exists": true,
+            "file_size_bytes": 18937,
+            "checksum": "c69ebabc3919b9a329b530d71c3732d99e1fdcdaeb5b819b9e7bc962762b7f5b",
+            "modified_at": "2026-06-28 12:25:48"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\b3\\stock_prices_daily.csv",
+            "exists": true,
+            "file_size_bytes": 155310,
+            "checksum": "1a28df02d9363f7b3dbef28909bbade4f62f05dd00178714e782f28eb8e50498",
+            "modified_at": "2026-06-28 12:25:51"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\cvm\\funds_daily_reports.csv",
+            "exists": false,
+            "file_size_bytes": null,
+            "checksum": null,
+            "modified_at": null
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\raw\\cvm\\funds_registry.csv",
+            "exists": false,
+            "file_size_bytes": null,
+            "checksum": null,
+            "modified_at": null
+        }
+    ],
+    "output_files": [
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\validation\\financial_raw_validation.db",
+            "exists": true,
+            "file_size_bytes": 299008,
+            "checksum": "9876a2d04c92347d08f90e84e0a5e2916f9f41ec951af9ac56f54bd413308ae9",
+            "modified_at": "2026-06-28 15:08:42"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\processed\\financial_data.db",
+            "exists": true,
+            "file_size_bytes": 491520,
+            "checksum": "c1e7e87f3577e0e5d9cef6569b31d8be51e126929aa29f65562d2837b0dfb598",
+            "modified_at": "2026-06-28 15:13:10"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\financial_report.xlsx",
+            "exists": true,
+            "file_size_bytes": 123620,
+            "checksum": "d1d091e426556bc18a5ff51112a59e7f89ff7455eb218a1a202b9ebf35a4b2d8",
+            "modified_at": "2026-06-28 15:13:28"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\coverage\\data_coverage_report.csv",
+            "exists": true,
+            "file_size_bytes": 1667,
+            "checksum": "19f44bcc6a493cf6637de7749a10a1087fffbb408950cd718d7f37e15d7b6cc9",
+            "modified_at": "2026-06-28 15:24:11"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\coverage\\data_coverage_summary.json",
+            "exists": true,
+            "file_size_bytes": 304,
+            "checksum": "68883b38db571b73652412d166ba786c8e0c112a8973781b75a5694c71bcb500",
+            "modified_at": "2026-06-28 15:24:11"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\coverage\\data_coverage_missing_dates.csv",
+            "exists": true,
+            "file_size_bytes": 71,
+            "checksum": "8a3cd44c19348254fcc1e03f3723ba01cb9b0704ea279e06f94fe5a69128cc1d",
+            "modified_at": "2026-06-28 15:24:11"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\operations\\alerts.json",
+            "exists": true,
+            "file_size_bytes": 5532,
+            "checksum": "4a5a85f58192c0e488ec4d8405218e1f896fe7e4179d2a9c3adf5c27dcb89c45",
+            "modified_at": "2026-06-28 15:24:04"
+        },
+        {
+            "path": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\reports\\operations\\alerts.csv",
+            "exists": true,
+            "file_size_bytes": 2677,
+            "checksum": "a30b318e1c283bd34430417cc42b1f27b7d8f575238276ad5f7fbf8455a2c549",
+            "modified_at": "2026-06-28 15:24:04"
+        }
+    ],
+    "checksums": {},
+    "warnings": [],
+    "errors": []
+}

@@ -34,5 +34,9 @@ def main():
     print(f"CDI: {len(cdi_df)} linhas")
     print(f"Acoes: {len(stocks_df)} linhas")
 
+def test_module_01_collection():
+    main()
+
+
 if __name__ == "__main__":
     main()

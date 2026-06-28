@@ -64,5 +64,9 @@ def main():
     print("\nTeste do Modulo 5 concluido com sucesso.")
 
 
+def test_module_05_monitoring():
+    main()
+
+
 if __name__ == "__main__":
     main()

@@ -39,5 +39,9 @@ def main():
     print("\nTeste do Modulo 3 concluido com sucesso.")
 
 
+def test_module_03_storage():
+    main()
+
+
 if __name__ == "__main__":
     main()

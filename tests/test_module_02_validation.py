@@ -33,5 +33,9 @@ def main():
     print(f"WARN         : {summary['warn']}")
     print(f"FAIL         : {summary['fail']}")
 
+def test_module_02_validation():
+    main()
+
+
 if __name__ == "__main__":
     main()

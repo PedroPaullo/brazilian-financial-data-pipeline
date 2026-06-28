@@ -4,7 +4,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Last commit](https://img.shields.io/github/last-commit/PedroPaullo/brazilian-financial-data-pipeline)
 
-Pipeline completo de dados financeiros brasileiros: coleta automatizada, fontes institucionais opcionais, validação de qualidade, armazenamento normalizado, observabilidade operacional, dashboard web e relatório Excel executivo.
+Pipeline completo de dados financeiros brasileiros: coleta automatizada, fontes institucionais opcionais, validação de qualidade, armazenamento normalizado, rastreabilidade, reconciliação, observabilidade operacional, dashboard web e relatório Excel executivo.
 
 ## Problema
 
@@ -20,11 +20,11 @@ Pipeline modular em Python que automatiza todo o ciclo: coleta → validação �
 - 1004 cotações B3/Yahoo Finance coletadas: PETR4, VALE3, ITUB4 e Ibovespa
 - 45 checagens de qualidade executadas com status PASS/WARN/FAIL
 - Dashboard operacional com freshness, qualidade de dados, benchmarks e histórico de execução
-- Orquestrador único, cobertura histórica, calendário B3 controlado, CVM Fundos opcional, ANBIMA adapter, lineage de artefatos e analytics de mercado
+- Orquestrador único, cobertura histórica, calendário B3 controlado, CVM Fundos opcional, ANBIMA adapter, lineage, reconciliação, manifests e analytics de mercado
 
 ## Arquitetura
 
-coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → cobertura histórica → observabilidade/SLA → alertas → analytics → dashboard Streamlit → relatório Excel
+coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → cobertura histórica → manifests/versionamento → reconciliação → observabilidade/SLA → alertas → analytics → dashboard Streamlit → relatório Excel
 
 ## Módulos
 
@@ -39,8 +39,9 @@ coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite
 | 7 — Orquestração | Execução mestre com módulos selecionáveis | src/run_pipeline.py |
 | 8 — Cobertura | Backfill histórico, calendário esperado e percentual de preenchimento | src/coverage_report.py |
 | 9 — Fontes institucionais | Calendário B3, CVM Fundos e ANBIMA adapter | src/reference_data/b3_calendar.py; src/collectors/cvm_funds.py |
-| 10 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
-| 11 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
+| 10 — Rastreabilidade | Manifests, auditoria, versionamento lógico e reconciliação | src/metadata/; src/validation/reconciliation.py |
+| 11 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
+| 12 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
 
 ## Fontes de dados
 
@@ -71,6 +72,14 @@ pip install -r requirements.txt
 python src/run_pipeline.py --start 2024-01-01 --end 2024-12-31
 ```
 
+Entrypoints equivalentes tambem existem na raiz:
+
+```powershell
+python collect_data.py --help
+python run_pipeline.py --help
+python run_pipeline.py --skip-collection
+```
+
 Também é possível rodar por módulo:
 
 ```powershell
@@ -80,6 +89,21 @@ python src/load_processed_data.py
 python src/coverage_report.py --start 2024-01-01 --end 2024-12-31
 python src/generate_report.py
 ```
+
+Rastreabilidade e reconciliacao:
+
+```powershell
+python run_pipeline.py --skip-collection --enable-manifest --reconcile
+python run_pipeline.py --reconcile-only
+```
+
+Backfill historico real:
+
+```powershell
+python collect_data.py --start-date 2024-01-01 --end-date 2026-06-28
+```
+
+Nao afirmar cobertura historica real de dois anos enquanto esse backfill nao for executado e validado.
 
 Coleta opcional de CVM Fundos:
 
@@ -160,6 +184,12 @@ O dashboard inclui páginas de performance, risco, correlação e alertas operac
 - `docs/B3_CALENDAR.md`
 - `docs/CVM_FUNDS.md`
 - `docs/ANBIMA.md`
+- `docs/LOCAL_TERMINAL_USAGE.md`
+- `docs/DATA_LINEAGE.md`
+- `docs/DATA_VERSIONING.md`
+- `docs/RECONCILIATION.md`
+- `docs/POSTGRESQL.md`
+- `docs/PROJECT_HISTORY.md`
 
 ## Resultados
 

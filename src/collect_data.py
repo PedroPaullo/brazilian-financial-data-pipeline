@@ -15,8 +15,8 @@ logger = get_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--start", default="2024-01-01")
-    parser.add_argument("--end", default=date.today().strftime("%Y-%m-%d"))
+    parser.add_argument("--start", "--start-date", dest="start", default="2024-01-01")
+    parser.add_argument("--end", "--end-date", dest="end", default=date.today().strftime("%Y-%m-%d"))
     parser.add_argument("--tickers", nargs="+", default=DEFAULT_B3_TICKERS)
     parser.add_argument("--include-cvm", action="store_true")
     parser.add_argument("--cvm-year-month", default=None)

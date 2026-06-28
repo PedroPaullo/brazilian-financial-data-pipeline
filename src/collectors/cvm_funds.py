@@ -152,6 +152,7 @@ def collect_cvm_funds(
     registry_output_file: Path = OUTPUT_FILES["cvm_funds_registry"],
 ) -> dict[str, Any]:
     try:
+        year_month = str(year_month).replace("-", "")
         daily_url = CVM_INF_DIARIO_URL.format(year_month=year_month)
         logger.info("Coletando CVM Informe Diario FI: %s", daily_url)
         daily_raw = _read_first_csv_from_zip(_download_zip(daily_url), ["inf_diario"])

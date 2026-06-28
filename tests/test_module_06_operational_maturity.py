@@ -47,5 +47,9 @@ def main():
     print("\nTeste do Modulo 6 concluido com sucesso.")
 
 
+def test_module_06_operational_maturity():
+    main()
+
+
 if __name__ == "__main__":
     main()

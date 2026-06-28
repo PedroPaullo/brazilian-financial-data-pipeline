@@ -31,6 +31,8 @@ from monitoring import initialize_monitoring_db
 PAGE_OPTIONS = (
     "Resumo Executivo",
     "Status do Pipeline",
+    "Rastreabilidade",
+    "Reconciliacao",
     "Qualidade dos Dados",
     "Cobertura Historica",
     "Fundos CVM",
@@ -300,6 +302,31 @@ def load_cvm_funds_data(database_path: str) -> tuple[pd.DataFrame, pd.DataFrame,
     if not snapshot_df.empty:
         snapshot_df["last_available_date"] = pd.to_datetime(snapshot_df["last_available_date"])
     return daily_df, snapshot_df, flows_df
+
+
+@st.cache_data(show_spinner=True)
+def load_traceability_data(database_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if not Path(database_path).exists():
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    with sqlite3.connect(database_path) as conn:
+        try:
+            runs_df = pd.read_sql_query("SELECT * FROM vw_etl_runs_latest", conn)
+            versions_df = pd.read_sql_query("SELECT * FROM vw_dataset_versions_latest", conn)
+            summary_df = pd.read_sql_query("SELECT * FROM vw_reconciliation_summary", conn)
+        except Exception:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    return runs_df, versions_df, summary_df
+
+
+@st.cache_data(show_spinner=True)
+def load_reconciliation_latest() -> tuple[dict[str, Any], pd.DataFrame]:
+    json_file = Path("reports/reconciliation/latest.json")
+    csv_file = Path("reports/reconciliation/latest.csv")
+    if not json_file.exists() or not csv_file.exists():
+        return {}, pd.DataFrame()
+    with open(json_file, "r", encoding="utf-8") as file:
+        payload = json.load(file)
+    return payload.get("summary", {}), pd.read_csv(csv_file)
 
 
 def calculate_ipca_accumulated(ipca_df: pd.DataFrame, year: int = 2024) -> float | None:
@@ -781,6 +808,51 @@ def render_pipeline_status_page(
         st.info("Nenhum artefato registrado em data_artifacts ainda.")
     else:
         st.dataframe(artifacts_df, use_container_width=True, hide_index=True)
+
+
+def render_traceability_page(database_path: str) -> None:
+    st.header("Rastreabilidade")
+    runs_df, versions_df, summary_df = load_traceability_data(database_path)
+    if runs_df.empty and versions_df.empty and summary_df.empty:
+        st.info("Nenhuma execucao com rastreabilidade encontrada.")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Runs ETL", len(runs_df))
+    col2.metric("Versoes de datasets", len(versions_df))
+    col3.metric("Resumo reconciliacao", len(summary_df))
+
+    st.subheader("Ultimos runs")
+    st.dataframe(runs_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Versoes de datasets")
+    st.dataframe(versions_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Resumo de reconciliacao")
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
+
+
+def render_reconciliation_page() -> None:
+    st.header("Reconciliacao")
+    summary, checks_df = load_reconciliation_latest()
+    if not summary and checks_df.empty:
+        st.info("Nenhum relatorio de reconciliacao encontrado. Execute `python run_pipeline.py --reconcile-only`.")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Status geral", summary.get("overall_status", "N/D"))
+    col2.metric("PASSED", summary.get("passed", 0))
+    col3.metric("FAILED", summary.get("failed", 0))
+    col4.metric("SKIPPED", summary.get("skipped", 0))
+
+    st.caption(f"run_id: {summary.get('run_id', 'N/D')} | git: {summary.get('git_commit', 'N/D')}")
+    if checks_df.empty:
+        return
+
+    statuses = sorted(checks_df["status"].dropna().unique().tolist())
+    selected_statuses = st.multiselect("Status", options=statuses, default=statuses)
+    filtered_df = checks_df[checks_df["status"].isin(selected_statuses)].copy()
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
 
 def render_performance_benchmarks_page(
@@ -1347,6 +1419,10 @@ def main() -> None:
         render_executive_summary(bcb_series_df, selic_df, ipca_df, stocks_df)
     elif page == "Status do Pipeline":
         render_pipeline_status_page(bcb_series_df, selic_df, ipca_df, stocks_df)
+    elif page == "Rastreabilidade":
+        render_traceability_page(database_path)
+    elif page == "Reconciliacao":
+        render_reconciliation_page()
     elif page == "Qualidade dos Dados":
         render_data_quality_page()
     elif page == "Cobertura Historica":

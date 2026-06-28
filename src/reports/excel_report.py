@@ -54,6 +54,9 @@ def load_report_data(database_file):
     cvm_snapshot_df = _read_sql_optional(database_file, "SELECT * FROM vw_cvm_top_funds_by_net_asset LIMIT 100")
     cvm_flows_df = _read_sql_optional(database_file, "SELECT * FROM vw_cvm_fund_flows_monthly ORDER BY reference_month")
     cvm_daily_df = _read_sql_optional(database_file, "SELECT fund_cnpj, fund_name, reference_date, net_asset_value, quota_value, daily_subscriptions, daily_redemptions, number_of_shareholders FROM vw_cvm_fund_daily_reports ORDER BY reference_date, fund_name")
+    etl_runs_df = _read_sql_optional(database_file, "SELECT * FROM vw_etl_runs_latest")
+    dataset_versions_df = _read_sql_optional(database_file, "SELECT * FROM vw_dataset_versions_latest")
+    reconciliation_df = _read_sql_optional(database_file, "SELECT * FROM etl_reconciliation_check ORDER BY created_at DESC LIMIT 200")
     selic_df["reference_date"] = pd.to_datetime(selic_df["reference_date"])
     ipca_df["reference_date"] = pd.to_datetime(ipca_df["reference_date"])
     bcb_series_df["reference_date"] = pd.to_datetime(bcb_series_df["reference_date"])
@@ -82,6 +85,9 @@ def load_report_data(database_file):
         "cvm_snapshot": cvm_snapshot_df,
         "cvm_flows": cvm_flows_df,
         "cvm_daily": cvm_daily_df,
+        "etl_runs": etl_runs_df,
+        "dataset_versions": dataset_versions_df,
+        "reconciliation": reconciliation_df,
     }
 
 def build_executive_metrics(data):
@@ -429,6 +435,24 @@ def create_cvm_funds_sheet(workbook, data):
     _format_worksheet_columns(ws, 32)
 
 
+def create_traceability_sheets(workbook, data):
+    sheet_map = [
+        ("ETL Runs", data.get("etl_runs", pd.DataFrame()), ["run_id", "started_at", "finished_at", "status", "git_commit", "database_backend"]),
+        ("Dataset Versions", data.get("dataset_versions", pd.DataFrame()), ["dataset_version_id", "run_id", "dataset_name", "source_name", "row_count", "checksum", "created_at"]),
+        ("Reconciliation", data.get("reconciliation", pd.DataFrame()), ["run_id", "check_name", "severity", "status", "expected_value", "actual_value", "created_at"]),
+    ]
+    for sheet_name, df, fallback_columns in sheet_map:
+        ws = workbook.create_sheet(sheet_name)
+        ws["A1"] = sheet_name
+        ws["A1"].fill = TITLE_FILL
+        ws["A1"].font = TITLE_FONT
+        output_df = df.copy()
+        if output_df.empty:
+            output_df = pd.DataFrame(columns=fallback_columns)
+        _write_dataframe(ws, output_df, 3, 1, f"tbl_{sheet_name.lower().replace(' ', '_')}")
+        _format_worksheet_columns(ws, 34)
+
+
 def create_financial_report(database_file, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
     data = load_report_data(database_file)
@@ -442,6 +466,7 @@ def create_financial_report(database_file, output_file):
     create_coverage_sheet(wb, data)
     create_performance_sheet(wb, data)
     create_cvm_funds_sheet(wb, data)
+    create_traceability_sheets(wb, data)
     wb.save(output_file)
     return {
         "output_file": str(output_file),

@@ -36,6 +36,13 @@ jobs:
           python -m py_compile src/collectors/cvm_funds.py
           python -m py_compile src/collectors/anbima_client.py
           python -m py_compile src/collectors/anbima_prices.py
+          python -m py_compile collect_data.py
+          python -m py_compile run_pipeline.py
+          python -m py_compile src/metadata/manifest.py
+          python -m py_compile src/metadata/dataset_versioning.py
+          python -m py_compile src/metadata/audit.py
+          python -m py_compile src/validation/reconciliation.py
+          python -m py_compile src/storage/database.py
 
       - name: Run offline tests
         run: |
@@ -44,3 +51,4 @@ jobs:
           python tests/test_module_07_financial_analytics.py
           python tests/test_module_08_data_coverage.py
           python tests/test_module_09_institutional_sources.py
+          python tests/test_module_10_traceability_reconciliation_versioning.py

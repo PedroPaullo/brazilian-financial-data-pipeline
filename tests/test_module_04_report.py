@@ -21,11 +21,18 @@ def main():
         "Cobertura",
         "Performance",
         "Fundos CVM",
+        "ETL Runs",
+        "Dataset Versions",
+        "Reconciliation",
     }
 
     assert expected_sheets.issubset(set(workbook.sheetnames))
 
     print("\nTeste do Modulo 4 concluido com sucesso.")
+
+
+def test_module_04_report():
+    main()
 
 
 if __name__ == "__main__":

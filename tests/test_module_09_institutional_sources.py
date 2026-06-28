@@ -99,5 +99,9 @@ def main():
     print("\nTeste do Modulo 9 concluido com sucesso.")
 
 
+def test_module_09_institutional_sources():
+    main()
+
+
 if __name__ == "__main__":
     main()

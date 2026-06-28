@@ -26,6 +26,34 @@ def _execute_schema(conn, schema_file):
     schema_sql = schema_file.read_text(encoding="utf-8")
     conn.executescript(schema_sql)
 
+
+def _reset_financial_schema(conn):
+    views = [
+        "vw_bcb_series_values",
+        "vw_b3_stock_prices",
+        "vw_bcb_series_monthly_summary",
+        "vw_b3_stock_monthly_summary",
+        "vw_bcb_latest_snapshot",
+        "vw_b3_asset_returns",
+        "vw_cvm_fund_daily_reports",
+        "vw_cvm_fund_latest_snapshot",
+        "vw_cvm_top_funds_by_net_asset",
+        "vw_cvm_fund_flows_monthly",
+    ]
+    tables = [
+        "fact_cvm_fund_daily_report",
+        "fact_b3_stock_prices",
+        "fact_bcb_series_values",
+        "dim_cvm_fund",
+        "dim_b3_ticker",
+        "dim_bcb_series",
+        "dim_source",
+    ]
+    for view in views:
+        conn.execute(f"DROP VIEW IF EXISTS {view}")
+    for table in tables:
+        conn.execute(f"DROP TABLE IF EXISTS {table}")
+
 def _insert_sources(conn):
     sources = [
         ("BCB_SGS", "MACROECONOMIC_TIME_SERIES", "Banco Central do Brasil - SGS"),
@@ -259,8 +287,12 @@ def _read_optional_csv(file_path, date_columns=None):
 
 
 def load_processed_database(selic_file, ipca_file, stocks_file, database_file, schema_file, replace_database=True, extra_bcb_files=None, cvm_daily_file=None, cvm_registry_file=None):
+    reset_in_place = False
     if replace_database and database_file.exists():
-        database_file.unlink()
+        try:
+            database_file.unlink()
+        except PermissionError:
+            reset_in_place = True
     database_file.parent.mkdir(parents=True, exist_ok=True)
     selic_df = _standardize_date_column(_read_csv(selic_file))
     ipca_df = _standardize_date_column(_read_csv(ipca_file))
@@ -273,6 +305,8 @@ def load_processed_database(selic_file, ipca_file, stocks_file, database_file, s
     cvm_registry_df = _read_optional_csv(cvm_registry_file, ["registration_date"])
     with sqlite3.connect(database_file) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
+        if reset_in_place:
+            _reset_financial_schema(conn)
         _execute_schema(conn, schema_file)
         _insert_sources(conn)
         _insert_bcb_series_dimensions(conn, bcb_df)
