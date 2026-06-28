@@ -36,7 +36,18 @@ def _load_optional_bcb_files(extra_bcb_files: list[Path] | None) -> list[pd.Data
     return dataframes
 
 
-def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file, extra_bcb_files=None):
+def _load_optional_csv(file_path: Path | None, date_columns: list[str] | None = None, numeric_columns: list[str] | None = None) -> pd.DataFrame | None:
+    if file_path is None or not Path(file_path).exists():
+        return None
+    df = _read_csv_safely(Path(file_path))
+    for date_column in date_columns or []:
+        if date_column in df.columns:
+            df[date_column] = pd.to_datetime(df[date_column], errors="coerce").dt.strftime("%Y-%m-%d")
+    df = _coerce_numeric_columns(df, numeric_columns or [])
+    return df
+
+
+def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file, extra_bcb_files=None, cvm_daily_file=None, cvm_registry_file=None):
     database_file.parent.mkdir(parents=True, exist_ok=True)
     selic_df = _read_csv_safely(selic_file)
     ipca_df = _read_csv_safely(ipca_file)
@@ -51,18 +62,47 @@ def load_raw_files_to_sqlite(selic_file, ipca_file, stocks_file, database_file, 
         [selic_df, ipca_df, *_load_optional_bcb_files(extra_bcb_files)],
         ignore_index=True,
     )
+    cvm_daily_df = _load_optional_csv(
+        Path(cvm_daily_file) if cvm_daily_file else None,
+        date_columns=["reference_date"],
+        numeric_columns=[
+            "total_portfolio_value",
+            "net_asset_value",
+            "quota_value",
+            "daily_subscriptions",
+            "daily_redemptions",
+            "number_of_shareholders",
+        ],
+    )
+    cvm_registry_df = _load_optional_csv(
+        Path(cvm_registry_file) if cvm_registry_file else None,
+        date_columns=["registration_date"],
+    )
     with sqlite3.connect(database_file) as conn:
         selic_df.to_sql("raw_selic_daily", conn, if_exists="replace", index=False)
         ipca_df.to_sql("raw_ipca_monthly", conn, if_exists="replace", index=False)
         bcb_series_df.to_sql("raw_bcb_series", conn, if_exists="replace", index=False)
         stocks_df.to_sql("raw_stock_prices_daily", conn, if_exists="replace", index=False)
+        if cvm_daily_df is not None:
+            cvm_daily_df.to_sql("raw_cvm_funds_daily_reports", conn, if_exists="replace", index=False)
+        if cvm_registry_df is not None:
+            cvm_registry_df.to_sql("raw_cvm_funds_registry", conn, if_exists="replace", index=False)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_selic_date_series ON raw_selic_daily(date, series_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_ipca_date_series ON raw_ipca_monthly(date, series_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_bcb_series_date_series ON raw_bcb_series(date, series_code)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_stocks_date_ticker ON raw_stock_prices_daily(date, ticker)")
-    return {
+        if cvm_daily_df is not None:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_cvm_daily_cnpj_date ON raw_cvm_funds_daily_reports(fund_cnpj, reference_date)")
+        if cvm_registry_df is not None:
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_cvm_registry_cnpj ON raw_cvm_funds_registry(fund_cnpj)")
+    result = {
         "raw_selic_daily": len(selic_df),
         "raw_ipca_monthly": len(ipca_df),
         "raw_bcb_series": len(bcb_series_df),
         "raw_stock_prices_daily": len(stocks_df),
     }
+    if cvm_daily_df is not None:
+        result["raw_cvm_funds_daily_reports"] = len(cvm_daily_df)
+    if cvm_registry_df is not None:
+        result["raw_cvm_funds_registry"] = len(cvm_registry_df)
+    return result

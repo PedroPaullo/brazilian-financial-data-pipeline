@@ -69,9 +69,44 @@ CREATE TABLE IF NOT EXISTS fact_b3_stock_prices (
     CONSTRAINT ck_high_greater_equal_low CHECK (high_price >= low_price)
 );
 
+CREATE TABLE IF NOT EXISTS dim_cvm_fund (
+    fund_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fund_cnpj TEXT NOT NULL UNIQUE,
+    fund_name TEXT,
+    fund_status TEXT,
+    registration_date TEXT,
+    fund_type TEXT,
+    target_investor TEXT,
+    source TEXT NOT NULL DEFAULT 'CVM',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS fact_cvm_fund_daily_report (
+    fund_report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    fund_id INTEGER NOT NULL,
+    reference_date TEXT NOT NULL,
+    total_portfolio_value REAL,
+    net_asset_value REAL NOT NULL,
+    quota_value REAL NOT NULL,
+    daily_subscriptions REAL,
+    daily_redemptions REAL,
+    number_of_shareholders INTEGER,
+    collected_at TEXT,
+    loaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_fact_cvm_fund FOREIGN KEY (fund_id) REFERENCES dim_cvm_fund(fund_id),
+    CONSTRAINT uq_fact_cvm_fund_date UNIQUE (fund_id, reference_date),
+    CONSTRAINT ck_cvm_reference_date_format CHECK (length(reference_date) = 10),
+    CONSTRAINT ck_cvm_net_asset_non_negative CHECK (net_asset_value >= 0),
+    CONSTRAINT ck_cvm_quota_positive CHECK (quota_value > 0),
+    CONSTRAINT ck_cvm_shareholders_non_negative CHECK (number_of_shareholders >= 0)
+);
+
 CREATE INDEX IF NOT EXISTS idx_fact_bcb_series_date ON fact_bcb_series_values(series_id, reference_date);
 CREATE INDEX IF NOT EXISTS idx_fact_b3_ticker_date ON fact_b3_stock_prices(ticker_id, reference_date);
 CREATE INDEX IF NOT EXISTS idx_fact_b3_reference_date ON fact_b3_stock_prices(reference_date);
+CREATE INDEX IF NOT EXISTS idx_fact_cvm_fund_date ON fact_cvm_fund_daily_report(fund_id, reference_date);
+CREATE INDEX IF NOT EXISTS idx_fact_cvm_reference_date ON fact_cvm_fund_daily_report(reference_date);
 
 DROP VIEW IF EXISTS vw_bcb_series_values;
 CREATE VIEW vw_bcb_series_values AS
@@ -166,3 +201,42 @@ SELECT ticker, asset_type, start_date, end_date,
             THEN ROUND(((last_adjusted_close / first_adjusted_close) - 1) * 100, 4)
             ELSE NULL END AS return_pct
 FROM first_last;
+
+DROP VIEW IF EXISTS vw_cvm_fund_daily_reports;
+CREATE VIEW vw_cvm_fund_daily_reports AS
+SELECT d.fund_cnpj, d.fund_name, d.fund_status, d.registration_date, d.fund_type,
+       d.target_investor, f.reference_date, f.total_portfolio_value,
+       f.net_asset_value, f.quota_value, f.daily_subscriptions,
+       f.daily_redemptions, f.number_of_shareholders, f.collected_at, f.loaded_at
+FROM fact_cvm_fund_daily_report f
+INNER JOIN dim_cvm_fund d ON f.fund_id = d.fund_id;
+
+DROP VIEW IF EXISTS vw_cvm_fund_latest_snapshot;
+CREATE VIEW vw_cvm_fund_latest_snapshot AS
+WITH ranked AS (
+    SELECT *,
+           ROW_NUMBER() OVER (PARTITION BY fund_cnpj ORDER BY reference_date DESC) AS rn
+    FROM vw_cvm_fund_daily_reports
+)
+SELECT fund_cnpj, fund_name, fund_status, fund_type, target_investor,
+       reference_date AS last_available_date, total_portfolio_value,
+       net_asset_value, quota_value, daily_subscriptions,
+       daily_redemptions, number_of_shareholders
+FROM ranked
+WHERE rn = 1;
+
+DROP VIEW IF EXISTS vw_cvm_top_funds_by_net_asset;
+CREATE VIEW vw_cvm_top_funds_by_net_asset AS
+SELECT *
+FROM vw_cvm_fund_latest_snapshot
+ORDER BY net_asset_value DESC;
+
+DROP VIEW IF EXISTS vw_cvm_fund_flows_monthly;
+CREATE VIEW vw_cvm_fund_flows_monthly AS
+SELECT strftime('%Y-%m', reference_date) AS reference_month,
+       COUNT(DISTINCT fund_cnpj) AS funds_count,
+       ROUND(SUM(daily_subscriptions), 2) AS total_subscriptions,
+       ROUND(SUM(daily_redemptions), 2) AS total_redemptions,
+       ROUND(SUM(daily_subscriptions) - SUM(daily_redemptions), 2) AS net_flow
+FROM vw_cvm_fund_daily_reports
+GROUP BY strftime('%Y-%m', reference_date);

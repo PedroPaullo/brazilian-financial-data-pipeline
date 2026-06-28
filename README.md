@@ -4,7 +4,7 @@
 ![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
 ![Last commit](https://img.shields.io/github/last-commit/PedroPaullo/brazilian-financial-data-pipeline)
 
-Pipeline completo de dados financeiros brasileiros: coleta automatizada, validação de qualidade, armazenamento normalizado, observabilidade operacional, dashboard web e relatório Excel executivo.
+Pipeline completo de dados financeiros brasileiros: coleta automatizada, fontes institucionais opcionais, validação de qualidade, armazenamento normalizado, observabilidade operacional, dashboard web e relatório Excel executivo.
 
 ## Problema
 
@@ -20,7 +20,7 @@ Pipeline modular em Python que automatiza todo o ciclo: coleta → validação �
 - 1004 cotações B3/Yahoo Finance coletadas: PETR4, VALE3, ITUB4 e Ibovespa
 - 45 checagens de qualidade executadas com status PASS/WARN/FAIL
 - Dashboard operacional com freshness, qualidade de dados, benchmarks e histórico de execução
-- Orquestrador único, cobertura histórica, alertas operacionais, lineage de artefatos e analytics de mercado
+- Orquestrador único, cobertura histórica, calendário B3 controlado, CVM Fundos opcional, ANBIMA adapter, lineage de artefatos e analytics de mercado
 
 ## Arquitetura
 
@@ -38,13 +38,16 @@ coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite
 | 6 — Dashboard | Streamlit com resumo, status, qualidade, benchmarks e séries | src/dashboard.py |
 | 7 — Orquestração | Execução mestre com módulos selecionáveis | src/run_pipeline.py |
 | 8 — Cobertura | Backfill histórico, calendário esperado e percentual de preenchimento | src/coverage_report.py |
-| 9 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
-| 10 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
+| 9 — Fontes institucionais | Calendário B3, CVM Fundos e ANBIMA adapter | src/reference_data/b3_calendar.py; src/collectors/cvm_funds.py |
+| 10 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
+| 11 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
 
 ## Fontes de dados
 
 - BCB/SGS — Selic diária (série 11), IPCA mensal (série 433), dólar PTAX venda diário (série 1) e CDI diário (série 12)
 - Yahoo Finance via yfinance — PETR4.SA, VALE3.SA, ITUB4.SA e Ibovespa (^BVSP)
+- CVM Dados Abertos — Informe Diário de Fundos e cadastro de fundos/classes, opcional
+- ANBIMA — adapter preparado para credenciais, desabilitado por padrão
 
 ## Stack
 
@@ -76,6 +79,12 @@ python src/validate_data.py
 python src/load_processed_data.py
 python src/coverage_report.py --start 2024-01-01 --end 2024-12-31
 python src/generate_report.py
+```
+
+Coleta opcional de CVM Fundos:
+
+```powershell
+python src/collect_data.py --start 2024-01-01 --end 2024-12-31 --include-cvm --cvm-year-month 202401
 ```
 
 ## Dashboard
@@ -124,6 +133,14 @@ A cobertura é salva em:
 
 O dashboard inclui a página `Cobertura Historica` e o Excel inclui a aba `Cobertura`.
 
+## Fontes Institucionais
+
+- Calendário B3 auditável: `data/reference/b3_trading_calendar.csv`
+- Coletor CVM Fundos: `python src/collectors/cvm_funds.py --year-month 202401`
+- ANBIMA adapter: `ANBIMA_ENABLE=false` por padrão, com retorno SKIPPED sem credenciais
+
+O dashboard inclui a página `Fundos CVM` e o Excel inclui a aba `Fundos CVM`.
+
 ## Alertas e Analytics
 
 ```powershell
@@ -140,6 +157,9 @@ O dashboard inclui páginas de performance, risco, correlação e alertas operac
 - `docs/OPERATIONS.md`
 - `docs/DATA_QUALITY.md`
 - `docs/DATA_COVERAGE.md`
+- `docs/B3_CALENDAR.md`
+- `docs/CVM_FUNDS.md`
+- `docs/ANBIMA.md`
 
 ## Resultados
 

@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument("--usd-ptax-file", default=str(OUTPUT_FILES["usd_brl_ptax_sell_daily"]))
     parser.add_argument("--cdi-file", default=str(OUTPUT_FILES["cdi_daily"]))
     parser.add_argument("--stocks-file", default=str(OUTPUT_FILES["stock_prices_daily"]))
+    parser.add_argument("--cvm-daily-file", default=str(OUTPUT_FILES["cvm_funds_daily_reports"]))
+    parser.add_argument("--cvm-registry-file", default=str(OUTPUT_FILES["cvm_funds_registry"]))
     parser.add_argument("--database-file", default=str(VALIDATION_DB_FILE))
     return parser.parse_args()
 
@@ -36,6 +38,8 @@ def main():
             stocks_file=Path(args.stocks_file),
             database_file=Path(args.database_file),
             extra_bcb_files=[Path(args.usd_ptax_file), Path(args.cdi_file)],
+            cvm_daily_file=Path(args.cvm_daily_file),
+            cvm_registry_file=Path(args.cvm_registry_file),
         )
 
         logger.info("Registros carregados no SQLite:")

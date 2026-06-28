@@ -252,6 +252,66 @@ def record_data_artifact(
         conn.commit()
 
 
+def upsert_source_status(
+    source_name: str,
+    dataset_name: str,
+    status: str,
+    expected_frequency: str = "optional",
+    records_count: int = 0,
+    details: str | None = None,
+    database_file: Path = OPERATIONS_DB_FILE,
+) -> None:
+    initialize_monitoring_db(database_file)
+    with sqlite3.connect(database_file) as conn:
+        conn.execute(
+            """
+            INSERT INTO source_freshness (
+                source_name,
+                dataset_name,
+                last_available_date,
+                expected_frequency,
+                status,
+                records_count,
+                max_lag_days,
+                lag_days,
+                freshness_status,
+                details,
+                updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(source_name, dataset_name) DO UPDATE SET
+                last_available_date = excluded.last_available_date,
+                expected_frequency = excluded.expected_frequency,
+                status = excluded.status,
+                records_count = excluded.records_count,
+                max_lag_days = excluded.max_lag_days,
+                lag_days = excluded.lag_days,
+                freshness_status = excluded.freshness_status,
+                details = excluded.details,
+                updated_at = excluded.updated_at
+            """,
+            (
+                source_name,
+                dataset_name,
+                None,
+                expected_frequency,
+                status,
+                records_count,
+                None,
+                None,
+                status,
+                details or "",
+                now_text(),
+            ),
+        )
+        conn.commit()
+
+
+def _object_exists(conn: sqlite3.Connection, object_type: str, object_name: str) -> bool:
+    query = "SELECT COUNT(*) FROM sqlite_master WHERE type = ? AND name = ?"
+    return int(conn.execute(query, (object_type, object_name)).fetchone()[0]) > 0
+
+
 def refresh_source_freshness_from_processed_db(
     processed_db_file: Path = PROCESSED_DB_FILE,
     operations_db_file: Path = OPERATIONS_DB_FILE,
@@ -273,6 +333,16 @@ def refresh_source_freshness_from_processed_db(
             """,
             conn,
         )
+        if _object_exists(conn, "view", "vw_cvm_fund_daily_reports"):
+            cvm_df = pd.read_sql_query(
+                """
+                SELECT MAX(reference_date) AS last_available_date, COUNT(*) AS records_count
+                FROM vw_cvm_fund_daily_reports
+                """,
+                conn,
+            )
+        else:
+            cvm_df = pd.DataFrame()
 
     for _, row in bcb_df.iterrows():
         expected_frequency = "monthly" if row["series_name"] == "ipca_monthly" else "daily"
@@ -294,3 +364,33 @@ def refresh_source_freshness_from_processed_db(
             records_count=int(row["records_count"]),
             database_file=operations_db_file,
         )
+
+    if not cvm_df.empty and int(cvm_df.iloc[0]["records_count"]) > 0:
+        upsert_source_freshness(
+            source_name="CVM",
+            dataset_name="cvm_funds_daily_reports",
+            last_available_date=str(cvm_df.iloc[0]["last_available_date"]),
+            expected_frequency="daily_business",
+            records_count=int(cvm_df.iloc[0]["records_count"]),
+            database_file=operations_db_file,
+        )
+    else:
+        upsert_source_status(
+            source_name="CVM",
+            dataset_name="cvm_funds_daily_reports",
+            status="SKIPPED",
+            expected_frequency="optional",
+            records_count=0,
+            details="Dados CVM Fundos nao carregados nesta execucao.",
+            database_file=operations_db_file,
+        )
+
+    upsert_source_status(
+        source_name="ANBIMA",
+        dataset_name="anbima_adapter",
+        status="SKIPPED",
+        expected_frequency="optional",
+        records_count=0,
+        details="ANBIMA_ENABLE=false ou credenciais ausentes; adapter preparado para Melhoria 9.",
+        database_file=operations_db_file,
+    )

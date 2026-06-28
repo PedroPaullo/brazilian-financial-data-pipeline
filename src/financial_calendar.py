@@ -129,6 +129,12 @@ def source_sla(dataset_name: str, source_name: str | None = None) -> dict[str, i
     if source_name == "YAHOO_FINANCE" or dataset_name.startswith("^") or dataset_name.endswith(".SA"):
         return {"expected_frequency": "trading_day", "max_lag_days": 2}
 
+    if source_name == "CVM" or dataset_name.startswith("cvm_"):
+        return {"expected_frequency": "daily_business", "max_lag_days": 7}
+
+    if source_name == "ANBIMA":
+        return {"expected_frequency": "optional", "max_lag_days": 30}
+
     if dataset_name in {"financial_report.xlsx", "alerts.json", "alerts.csv"}:
         return {"expected_frequency": "pipeline_artifact", "max_lag_days": 7}
 

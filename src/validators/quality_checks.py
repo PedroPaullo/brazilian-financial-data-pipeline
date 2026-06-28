@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 
+from reference_data.b3_calendar import CALENDAR_FILE, calendar_source, get_missing_trading_dates
+
 CRITICAL_COLUMNS = {
     "raw_selic_daily": ["source", "series_code", "series_name", "date", "value"],
     "raw_ipca_monthly": ["source", "series_code", "series_name", "date", "value"],
@@ -37,6 +39,28 @@ def _build_result(results, check_category, check_name, dataset, rule_type, sever
         "evidence_query": evidence_query or "",
         "executed_at": _now(),
     })
+
+
+def _build_skipped(results, check_category, check_name, dataset, details):
+    results.append({
+        "check_id": len(results) + 1,
+        "check_category": check_category,
+        "check_name": check_name,
+        "dataset": dataset,
+        "rule_type": "python",
+        "severity": "info",
+        "status": "SKIPPED",
+        "rows_affected": 0,
+        "details": details,
+        "evidence_query": "",
+        "executed_at": _now(),
+    })
+
+
+def _table_exists(conn, table_name: str) -> bool:
+    query = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?"
+    return int(conn.execute(query, (table_name,)).fetchone()[0]) > 0
+
 
 def _check_nulls(conn, results):
     for table_name, columns in CRITICAL_COLUMNS.items():
@@ -112,12 +136,26 @@ def _check_stock_coverage(conn, results, gaps):
     df = _load_dates(conn, "raw_stock_prices_daily", "ticker")
     total_missing = 0
     for ticker, tdf in df.groupby("ticker"):
-        expected = pd.date_range(tdf["date"].min(), tdf["date"].max(), freq="B")
-        missing = expected.difference(pd.DatetimeIndex(tdf["date"].drop_duplicates()))
+        missing = get_missing_trading_dates(
+            tdf["date"].drop_duplicates(),
+            tdf["date"].min(),
+            tdf["date"].max(),
+        )
         total_missing += len(missing)
         for d in missing:
             gaps.append({"dataset": "raw_stock_prices_daily", "key": ticker, "missing_date": d.strftime("%Y-%m-%d"), "check_name": "stock_coverage"})
     _build_result(results, "coverage", "stock_business_day_coverage", "raw_stock_prices_daily", "python", "warning", total_missing, "Gaps podem ser feriados da B3.")
+    fallback_rows = 0 if CALENDAR_FILE.exists() else 1
+    _build_result(
+        results,
+        "coverage",
+        "b3_calendar_source",
+        "raw_stock_prices_daily",
+        "python",
+        "warning",
+        fallback_rows,
+        f"Calendario B3 usado: {calendar_source()}.",
+    )
 
 
 def _check_bcb_series_coverage(conn, results, gaps):
@@ -149,6 +187,45 @@ def _check_bcb_series_coverage(conn, results, gaps):
     _build_result(results, "coverage", "bcb_daily_series_business_day_coverage", "raw_bcb_series", "python", "warning", total_missing_daily, "Gaps podem ser feriados nacionais.")
     _build_result(results, "coverage", "bcb_monthly_series_coverage", "raw_bcb_series", "python", "error", total_missing_monthly, "Series BCB mensais devem ter um registro por mes.")
 
+
+def _check_cvm_funds(conn, results):
+    daily_table = "raw_cvm_funds_daily_reports"
+    registry_table = "raw_cvm_funds_registry"
+    if not _table_exists(conn, daily_table):
+        _build_skipped(results, "institutional_source", "cvm_daily_reports_available", daily_table, "Arquivos CVM Fundos nao encontrados; validacao CVM pulada.")
+        return
+
+    cvm_rules = [
+        ("fund_cnpj_not_null", "fund_cnpj IS NULL OR TRIM(CAST(fund_cnpj AS TEXT)) = ''", "fund_cnpj nao deve ser nulo."),
+        ("reference_date_not_null", "reference_date IS NULL OR TRIM(CAST(reference_date AS TEXT)) = ''", "reference_date nao deve ser nula."),
+        ("net_asset_value_non_negative", "CAST(net_asset_value AS REAL) < 0", "Patrimonio liquido nao deve ser negativo."),
+        ("quota_value_positive", "CAST(quota_value AS REAL) <= 0", "Valor da cota deve ser positivo."),
+        ("shareholders_non_negative", "CAST(number_of_shareholders AS REAL) < 0", "Numero de cotistas nao deve ser negativo."),
+    ]
+    for check_name, where_clause, details in cvm_rules:
+        query = f"SELECT COUNT(*) FROM {daily_table} WHERE {where_clause}"
+        _build_result(results, "cvm_funds", check_name, daily_table, "sql", "error", _execute_scalar(conn, query), details, query)
+
+    duplicate_query = f"SELECT COUNT(*) FROM (SELECT fund_cnpj, reference_date, COUNT(*) FROM {daily_table} GROUP BY fund_cnpj, reference_date HAVING COUNT(*) > 1)"
+    _build_result(results, "cvm_funds", "duplicate_fund_date", daily_table, "sql", "error", _execute_scalar(conn, duplicate_query), "Duplicatas por fund_cnpj + reference_date.", duplicate_query)
+
+    extreme_pl_query = f"SELECT COUNT(*) FROM {daily_table} WHERE CAST(net_asset_value AS REAL) > 1000000000000"
+    _build_result(results, "cvm_funds", "extreme_net_asset_value", daily_table, "sql", "warning", _execute_scalar(conn, extreme_pl_query), "PL acima de faixa extrema deve ser revisado.", extreme_pl_query)
+
+    if not _table_exists(conn, registry_table):
+        _build_result(results, "cvm_funds", "registry_available", registry_table, "python", "warning", 1, "Cadastro CVM ausente para cruzar fundos do informe diario.")
+        return
+
+    missing_registry_query = f"""
+        SELECT COUNT(*)
+        FROM (SELECT DISTINCT fund_cnpj FROM {daily_table}) d
+        LEFT JOIN (SELECT DISTINCT fund_cnpj FROM {registry_table}) r
+            ON d.fund_cnpj = r.fund_cnpj
+        WHERE r.fund_cnpj IS NULL
+    """
+    _build_result(results, "cvm_funds", "daily_fund_has_registry", daily_table, "sql", "warning", _execute_scalar(conn, missing_registry_query), "Fundo com informe diario sem cadastro correspondente.", missing_registry_query)
+
+
 def run_quality_checks(database_file):
     results, gaps = [], []
     with sqlite3.connect(database_file) as conn:
@@ -161,6 +238,7 @@ def run_quality_checks(database_file):
         _check_ipca_coverage(conn, results, gaps)
         _check_bcb_series_coverage(conn, results, gaps)
         _check_stock_coverage(conn, results, gaps)
+        _check_cvm_funds(conn, results)
     results_df = pd.DataFrame(results)
     gaps_df = pd.DataFrame(gaps)
     fail_count = int((results_df["status"] == "FAIL").sum())
@@ -173,6 +251,7 @@ def run_quality_checks(database_file):
         "pass": int((results_df["status"] == "PASS").sum()),
         "warn": warn_count,
         "fail": fail_count,
+        "skipped": int((results_df["status"] == "SKIPPED").sum()),
         "overall_status": overall,
     }
     return results_df, gaps_df, summary

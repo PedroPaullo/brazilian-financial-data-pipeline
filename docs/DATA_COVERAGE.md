@@ -22,9 +22,9 @@ python src\coverage_report.py --start 2024-01-01 --end 2024-12-31
 
 - BCB daily series use Brazilian business days.
 - IPCA uses monthly dates.
-- Yahoo Finance B3 assets use trading-day frequency based on the current financial calendar fallback.
+- Yahoo Finance B3 assets use the controlled B3 calendar in `data/reference/b3_trading_calendar.csv`.
 
-The controlled B3 calendar is intentionally left for the institutional-source improvement.
+If the controlled B3 calendar is missing, the project falls back to weekday/holiday logic and records that source in the coverage report.
 
 ## Status Rules
 

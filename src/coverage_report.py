@@ -20,6 +20,7 @@ from config import (
 from financial_calendar import expected_dates
 from logger import get_logger
 from monitoring import record_data_artifact
+from reference_data.b3_calendar import calendar_source, get_b3_expected_trading_dates
 
 logger = get_logger(__name__)
 
@@ -60,8 +61,9 @@ def calculate_coverage(
     start_date,
     end_date,
     frequency: str,
+    expected_override: list | None = None,
 ) -> dict[str, Any]:
-    expected = expected_dates(start_date, end_date, frequency)
+    expected = expected_override if expected_override is not None else expected_dates(start_date, end_date, frequency)
     expected_set = {_to_date_string(d) for d in expected}
 
     actual = pd.to_datetime(pd.Series(list(actual_dates)), errors="coerce").dropna()
@@ -124,6 +126,8 @@ def build_coverage_report(
                     "missing_observations": coverage["missing_observations"],
                     "coverage_pct": coverage["coverage_pct"],
                     "status": coverage["status"],
+                    "calendar_source": "brazil_business_day" if frequency != "monthly" else "monthly_calendar",
+                    "last_expected_trading_date": coverage["last_expected_date"],
                     "missing_sample": ", ".join(coverage["missing_dates"][:10]),
                     "generated_at": generated_at,
                 }
@@ -142,7 +146,14 @@ def build_coverage_report(
     if not stocks_df.empty:
         for ticker, ticker_df in stocks_df.groupby("ticker"):
             frequency = _source_frequency("YAHOO_FINANCE", str(ticker))
-            coverage = calculate_coverage(ticker_df["reference_date"], start_date, end_date, frequency)
+            b3_expected_dates = get_b3_expected_trading_dates(start_date, end_date)
+            coverage = calculate_coverage(
+                ticker_df["reference_date"],
+                start_date,
+                end_date,
+                frequency,
+                expected_override=b3_expected_dates,
+            )
             rows.append(
                 {
                     "source_name": "YAHOO_FINANCE",
@@ -159,6 +170,8 @@ def build_coverage_report(
                     "missing_observations": coverage["missing_observations"],
                     "coverage_pct": coverage["coverage_pct"],
                     "status": coverage["status"],
+                    "calendar_source": calendar_source(),
+                    "last_expected_trading_date": coverage["last_expected_date"],
                     "missing_sample": ", ".join(coverage["missing_dates"][:10]),
                     "generated_at": generated_at,
                 }
@@ -189,6 +202,8 @@ def build_coverage_report(
         "missing_observations",
         "coverage_pct",
         "status",
+        "calendar_source",
+        "last_expected_trading_date",
         "missing_sample",
         "generated_at",
     ]

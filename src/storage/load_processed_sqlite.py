@@ -30,6 +30,7 @@ def _insert_sources(conn):
     sources = [
         ("BCB_SGS", "MACROECONOMIC_TIME_SERIES", "Banco Central do Brasil - SGS"),
         ("YAHOO_FINANCE", "MARKET_DATA", "Cotacoes da B3 via yfinance"),
+        ("CVM", "INSTITUTIONAL_FUNDS", "Comissao de Valores Mobiliarios - Fundos"),
     ]
     sql = "INSERT INTO dim_source (source_name, source_type, description) VALUES (?, ?, ?) ON CONFLICT(source_name) DO UPDATE SET source_type = excluded.source_type, description = excluded.description"
     conn.executemany(sql, sources)
@@ -103,6 +104,136 @@ def _insert_b3_stock_facts(conn, stocks_df):
     conn.executemany(sql, rows)
     return len(rows)
 
+
+def _insert_cvm_fund_dimensions(conn, cvm_daily_df, cvm_registry_df=None):
+    if cvm_daily_df is None or cvm_daily_df.empty:
+        return 0
+
+    if cvm_registry_df is None or cvm_registry_df.empty:
+        registry_df = pd.DataFrame({"fund_cnpj": sorted(cvm_daily_df["fund_cnpj"].dropna().unique())})
+    else:
+        registry_df = cvm_registry_df.copy()
+
+    for column in ["fund_name", "fund_status", "registration_date", "fund_type", "target_investor", "source"]:
+        if column not in registry_df.columns:
+            registry_df[column] = ""
+
+    registry_df = registry_df.dropna(subset=["fund_cnpj"]).drop_duplicates(subset=["fund_cnpj"], keep="first")
+    daily_cnpjs = set(cvm_daily_df["fund_cnpj"].dropna().astype(str).unique())
+    registry_cnpjs = set(registry_df["fund_cnpj"].dropna().astype(str).unique())
+    missing_cnpjs = sorted(daily_cnpjs - registry_cnpjs)
+    if missing_cnpjs:
+        registry_df = pd.concat(
+            [
+                registry_df,
+                pd.DataFrame(
+                    {
+                        "fund_cnpj": missing_cnpjs,
+                        "fund_name": "",
+                        "fund_status": "",
+                        "registration_date": None,
+                        "fund_type": "",
+                        "target_investor": "",
+                        "source": "CVM_INF_DIARIO_FI",
+                    }
+                ),
+            ],
+            ignore_index=True,
+        )
+    rows = [
+        (
+            str(row["fund_cnpj"]),
+            row.get("fund_name") or "",
+            row.get("fund_status") or "",
+            row.get("registration_date") or None,
+            row.get("fund_type") or "",
+            row.get("target_investor") or "",
+            row.get("source") or "CVM",
+            _now(),
+        )
+        for _, row in registry_df.iterrows()
+    ]
+    sql = """
+        INSERT INTO dim_cvm_fund (
+            fund_cnpj, fund_name, fund_status, registration_date, fund_type,
+            target_investor, source, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fund_cnpj) DO UPDATE SET
+            fund_name = excluded.fund_name,
+            fund_status = excluded.fund_status,
+            registration_date = excluded.registration_date,
+            fund_type = excluded.fund_type,
+            target_investor = excluded.target_investor,
+            source = excluded.source,
+            updated_at = excluded.updated_at
+    """
+    conn.executemany(sql, rows)
+    return len(rows)
+
+
+def _get_cvm_fund_id_map(conn):
+    rows = conn.execute("SELECT fund_cnpj, fund_id FROM dim_cvm_fund").fetchall()
+    return {str(cnpj): int(fund_id) for cnpj, fund_id in rows}
+
+
+def _insert_cvm_fund_facts(conn, cvm_daily_df):
+    if cvm_daily_df is None or cvm_daily_df.empty:
+        return 0
+
+    fund_id_map = _get_cvm_fund_id_map(conn)
+    loaded_at = _now()
+    numeric_columns = [
+        "total_portfolio_value",
+        "net_asset_value",
+        "quota_value",
+        "daily_subscriptions",
+        "daily_redemptions",
+        "number_of_shareholders",
+    ]
+    for column in numeric_columns:
+        cvm_daily_df[column] = pd.to_numeric(cvm_daily_df[column], errors="coerce").fillna(0)
+
+    rows = []
+    for _, row in cvm_daily_df.iterrows():
+        fund_cnpj = str(row["fund_cnpj"])
+        if fund_cnpj not in fund_id_map:
+            continue
+        rows.append(
+            (
+                fund_id_map[fund_cnpj],
+                row["reference_date"],
+                float(row["total_portfolio_value"]),
+                float(row["net_asset_value"]),
+                float(row["quota_value"]),
+                float(row["daily_subscriptions"]),
+                float(row["daily_redemptions"]),
+                int(row["number_of_shareholders"]),
+                row.get("collected_at"),
+                loaded_at,
+            )
+        )
+    sql = """
+        INSERT INTO fact_cvm_fund_daily_report (
+            fund_id, reference_date, total_portfolio_value, net_asset_value,
+            quota_value, daily_subscriptions, daily_redemptions,
+            number_of_shareholders, collected_at, loaded_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fund_id, reference_date) DO UPDATE SET
+            total_portfolio_value = excluded.total_portfolio_value,
+            net_asset_value = excluded.net_asset_value,
+            quota_value = excluded.quota_value,
+            daily_subscriptions = excluded.daily_subscriptions,
+            daily_redemptions = excluded.daily_redemptions,
+            number_of_shareholders = excluded.number_of_shareholders,
+            collected_at = excluded.collected_at,
+            loaded_at = excluded.loaded_at
+    """
+    conn.executemany(sql, rows)
+    return len(rows)
+
+
 def _count_rows(conn, table_name):
     return int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
 
@@ -116,7 +247,18 @@ def _read_optional_bcb_files(extra_bcb_files):
     return dataframes
 
 
-def load_processed_database(selic_file, ipca_file, stocks_file, database_file, schema_file, replace_database=True, extra_bcb_files=None):
+def _read_optional_csv(file_path, date_columns=None):
+    file_path = Path(file_path) if file_path else None
+    if file_path is None or not file_path.exists():
+        return None
+    df = _read_csv(file_path)
+    for column in date_columns or []:
+        if column in df.columns:
+            df = _standardize_date_column(df, column)
+    return df
+
+
+def load_processed_database(selic_file, ipca_file, stocks_file, database_file, schema_file, replace_database=True, extra_bcb_files=None, cvm_daily_file=None, cvm_registry_file=None):
     if replace_database and database_file.exists():
         database_file.unlink()
     database_file.parent.mkdir(parents=True, exist_ok=True)
@@ -127,21 +269,29 @@ def load_processed_database(selic_file, ipca_file, stocks_file, database_file, s
         ignore_index=True,
     )
     stocks_df = _standardize_date_column(_read_csv(stocks_file))
+    cvm_daily_df = _read_optional_csv(cvm_daily_file, ["reference_date"])
+    cvm_registry_df = _read_optional_csv(cvm_registry_file, ["registration_date"])
     with sqlite3.connect(database_file) as conn:
         conn.execute("PRAGMA foreign_keys = ON")
         _execute_schema(conn, schema_file)
         _insert_sources(conn)
         _insert_bcb_series_dimensions(conn, bcb_df)
         _insert_b3_ticker_dimensions(conn, stocks_df)
+        inserted_cvm_dimensions = _insert_cvm_fund_dimensions(conn, cvm_daily_df, cvm_registry_df)
         inserted_bcb = _insert_bcb_facts(conn, bcb_df)
         inserted_stocks = _insert_b3_stock_facts(conn, stocks_df)
+        inserted_cvm = _insert_cvm_fund_facts(conn, cvm_daily_df)
         conn.commit()
         return {
             "dim_source": _count_rows(conn, "dim_source"),
             "dim_bcb_series": _count_rows(conn, "dim_bcb_series"),
             "dim_b3_ticker": _count_rows(conn, "dim_b3_ticker"),
+            "dim_cvm_fund": _count_rows(conn, "dim_cvm_fund"),
             "fact_bcb_series_values": _count_rows(conn, "fact_bcb_series_values"),
             "fact_b3_stock_prices": _count_rows(conn, "fact_b3_stock_prices"),
+            "fact_cvm_fund_daily_report": _count_rows(conn, "fact_cvm_fund_daily_report"),
             "input_bcb_rows_loaded": inserted_bcb,
             "input_stock_rows_loaded": inserted_stocks,
+            "input_cvm_fund_rows_loaded": inserted_cvm,
+            "input_cvm_registry_rows_loaded": inserted_cvm_dimensions,
         }

@@ -1,9 +1,10 @@
 {
-    "generated_at": "2026-06-28 13:38:07",
+    "generated_at": "2026-06-28 14:13:31",
     "database_file": "C:\\Users\\pedro\\brazilian-financial-data-pipeline\\data\\validation\\financial_raw_validation.db",
-    "total_checks": 45,
-    "pass": 42,
-    "warn": 3,
+    "total_checks": 47,
+    "pass": 44,
+    "warn": 2,
     "fail": 0,
+    "skipped": 1,
     "overall_status": "PASS_WITH_WARNINGS"
 }

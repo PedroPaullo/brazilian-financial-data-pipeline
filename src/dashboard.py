@@ -33,6 +33,7 @@ PAGE_OPTIONS = (
     "Status do Pipeline",
     "Qualidade dos Dados",
     "Cobertura Historica",
+    "Fundos CVM",
     "Benchmarks",
     "Performance & Benchmarks",
     "Risco & Correlacao",
@@ -257,6 +258,48 @@ def load_stock_data(database_path: str) -> pd.DataFrame:
     df = read_sql_query(database_path, query)
     df["reference_date"] = pd.to_datetime(df["reference_date"])
     return df
+
+
+@st.cache_data(show_spinner=True)
+def load_cvm_funds_data(database_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    if not Path(database_path).exists():
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+    with sqlite3.connect(database_path) as conn:
+        try:
+            daily_df = pd.read_sql_query(
+                """
+                SELECT fund_cnpj, fund_name, fund_status, fund_type, target_investor,
+                       reference_date, net_asset_value, quota_value,
+                       daily_subscriptions, daily_redemptions, number_of_shareholders
+                FROM vw_cvm_fund_daily_reports
+                ORDER BY reference_date, fund_name
+                """,
+                conn,
+            )
+            snapshot_df = pd.read_sql_query(
+                """
+                SELECT *
+                FROM vw_cvm_top_funds_by_net_asset
+                LIMIT 100
+                """,
+                conn,
+            )
+            flows_df = pd.read_sql_query(
+                """
+                SELECT *
+                FROM vw_cvm_fund_flows_monthly
+                ORDER BY reference_month
+                """,
+                conn,
+            )
+        except Exception:
+            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    if not daily_df.empty:
+        daily_df["reference_date"] = pd.to_datetime(daily_df["reference_date"])
+    if not snapshot_df.empty:
+        snapshot_df["last_available_date"] = pd.to_datetime(snapshot_df["last_available_date"])
+    return daily_df, snapshot_df, flows_df
 
 
 def calculate_ipca_accumulated(ipca_df: pd.DataFrame, year: int = 2024) -> float | None:
@@ -882,6 +925,86 @@ def render_operational_alerts_page() -> None:
     st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
 
+def render_cvm_funds_page(database_path: str) -> None:
+    st.header("Fundos CVM")
+
+    daily_df, snapshot_df, flows_df = load_cvm_funds_data(database_path)
+    source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
+
+    if daily_df.empty:
+        st.info("Dados CVM ainda nao carregados. Execute `python src\\collect_data.py --include-cvm --cvm-year-month 202401` e depois a carga final.")
+        if not source_freshness_df.empty:
+            cvm_status_df = source_freshness_df[source_freshness_df["source_name"].isin(["CVM", "ANBIMA"])].copy()
+            if not cvm_status_df.empty:
+                st.subheader("Status institucional")
+                st.dataframe(build_operational_freshness_display(cvm_status_df), use_container_width=True, hide_index=True)
+        return
+
+    latest_date = daily_df["reference_date"].max()
+    latest_df = daily_df[daily_df["reference_date"] == latest_date].copy()
+    total_net_assets = latest_df["net_asset_value"].sum()
+    total_shareholders = latest_df["number_of_shareholders"].sum()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Fundos", daily_df["fund_cnpj"].nunique())
+    col2.metric("Ultima data", latest_date.strftime("%d/%m/%Y"))
+    col3.metric("PL total", format_number(float(total_net_assets), 2))
+    col4.metric("Cotistas", format_number(int(total_shareholders), 0))
+
+    if not source_freshness_df.empty:
+        cvm_status_df = source_freshness_df[source_freshness_df["source_name"].isin(["CVM", "ANBIMA"])].copy()
+        if not cvm_status_df.empty:
+            st.subheader("Freshness institucional")
+            st.dataframe(build_operational_freshness_display(cvm_status_df), use_container_width=True, hide_index=True)
+
+    st.subheader("Top 10 fundos por patrimonio liquido")
+    top_df = snapshot_df.head(10).copy() if not snapshot_df.empty else latest_df.sort_values("net_asset_value", ascending=False).head(10)
+    st.dataframe(top_df, use_container_width=True, hide_index=True)
+
+    fig_top = px.bar(
+        top_df,
+        x="fund_name",
+        y="net_asset_value",
+        title="Top fundos por PL",
+        labels={"fund_name": "Fundo", "net_asset_value": "Patrimonio liquido"},
+    )
+    st.plotly_chart(fig_top, use_container_width=True)
+
+    selected_funds = st.multiselect(
+        "Fundos",
+        options=top_df["fund_cnpj"].dropna().unique().tolist(),
+        default=top_df["fund_cnpj"].dropna().unique().tolist()[:5],
+    )
+    if selected_funds:
+        selected_df = daily_df[daily_df["fund_cnpj"].isin(selected_funds)].copy()
+        fig_evolution = px.line(
+            selected_df,
+            x="reference_date",
+            y="net_asset_value",
+            color="fund_name",
+            title="Evolucao do PL dos fundos selecionados",
+            labels={"reference_date": "Data", "net_asset_value": "PL", "fund_name": "Fundo"},
+        )
+        fig_evolution.update_layout(hovermode="x unified")
+        st.plotly_chart(fig_evolution, use_container_width=True)
+
+    if not flows_df.empty:
+        st.subheader("Fluxo mensal agregado")
+        st.dataframe(flows_df, use_container_width=True, hide_index=True)
+        fig_flows = px.bar(
+            flows_df,
+            x="reference_month",
+            y=["total_subscriptions", "total_redemptions", "net_flow"],
+            barmode="group",
+            title="Captacao, resgate e fluxo liquido",
+            labels={"reference_month": "Mes", "value": "Valor", "variable": "Metrica"},
+        )
+        st.plotly_chart(fig_flows, use_container_width=True)
+
+    with st.expander("Tabela CVM completa"):
+        st.dataframe(daily_df, use_container_width=True, hide_index=True)
+
+
 def render_historical_coverage_page(
     bcb_series_df: pd.DataFrame,
     stocks_df: pd.DataFrame,
@@ -1228,6 +1351,8 @@ def main() -> None:
         render_data_quality_page()
     elif page == "Cobertura Historica":
         render_historical_coverage_page(bcb_series_df, stocks_df)
+    elif page == "Fundos CVM":
+        render_cvm_funds_page(database_path)
     elif page == "Benchmarks":
         render_benchmarks_page(bcb_series_df, stocks_df)
     elif page == "Performance & Benchmarks":

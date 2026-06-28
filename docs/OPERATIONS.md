@@ -18,6 +18,49 @@ Specific modules:
 python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --modules validate load coverage report
 ```
 
+Run collection with optional CVM funds:
+
+```powershell
+python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --include-cvm --cvm-year-month 202401 --cvm-top-n 100
+```
+
+## B3 Calendar
+
+The controlled B3 calendar is stored at:
+
+```text
+data/reference/b3_trading_calendar.csv
+```
+
+Validation and coverage use this file when available. If it is missing, the project uses a fallback weekday/holiday calendar and records a WARN in validation.
+
+## CVM Funds
+
+Collect CVM funds independently:
+
+```powershell
+python src\collectors\cvm_funds.py --year-month 202401 --top-n 100
+```
+
+Then run validation, load, coverage and report:
+
+```powershell
+python src\run_pipeline.py --start 2024-01-01 --end 2024-12-31 --skip-collection
+```
+
+If CVM files are absent, validation and storage skip CVM without failing the base pipeline.
+
+## ANBIMA
+
+The adapter is disabled by default:
+
+```powershell
+$env:ANBIMA_ENABLE="false"
+python src\collectors\anbima_prices.py
+```
+
+Without credentials, it returns a controlled SKIPPED status.
+
 ## Coverage
 
 ```powershell

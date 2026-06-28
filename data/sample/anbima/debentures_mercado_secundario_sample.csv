@@ -1,0 +1,3 @@
+reference_date,asset_code,issuer,indicative_rate,price,source
+2024-01-02,DEBENTURE_SAMPLE_1,Emissor Exemplo 1,12.45,1012.34,anbima_sample
+2024-01-02,DEBENTURE_SAMPLE_2,Emissor Exemplo 2,10.88,987.65,anbima_sample

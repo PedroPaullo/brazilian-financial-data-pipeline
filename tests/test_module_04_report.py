@@ -20,6 +20,7 @@ def main():
         "Benchmarks",
         "Cobertura",
         "Performance",
+        "Fundos CVM",
     }
 
     assert expected_sheets.issubset(set(workbook.sheetnames))

@@ -21,6 +21,7 @@ Validation artifacts are generated under `reports/validation/`:
 - Validity: invalid negative values are blocked except IPCA deflation.
 - Consistency: IPCA dates and OHLC stock fields are checked.
 - Coverage: business-day or monthly gaps are reported.
+- Institutional sources: CVM funds checks run only when CVM files exist.
 
 ## Freshness SLA
 
@@ -37,6 +38,7 @@ Statuses:
 - `WARNING`
 - `CRITICAL`
 - `UNKNOWN`
+- `SKIPPED`
 
 Daily business/trading-day sources use a default SLA of 2 business days. IPCA monthly uses 60 calendar days. Pipeline artifacts use 7 calendar days.
 
@@ -62,6 +64,22 @@ Coverage status:
 - `WARNING`: coverage at or above 90%.
 - `CRITICAL`: coverage below 90%.
 - `UNKNOWN`: no expected dates available.
+
+## Institutional Validation
+
+CVM funds validation is optional and controlled:
+
+- `fund_cnpj` and `reference_date` cannot be null.
+- `net_asset_value` cannot be negative.
+- `quota_value` must be positive.
+- `number_of_shareholders` cannot be negative.
+- duplicate `fund_cnpj + reference_date` rows fail.
+- missing registry rows generate WARN.
+- extreme net asset values generate WARN.
+
+If CVM files do not exist, validation writes `SKIPPED` and does not fail the base pipeline.
+
+The B3 stock coverage validation uses `data/reference/b3_trading_calendar.csv` when available. If the file is missing, fallback is used and validation records a WARN.
 
 ## Known Limitations
 

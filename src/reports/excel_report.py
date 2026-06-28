@@ -33,6 +33,17 @@ def _read_sql(database_file, query):
     with sqlite3.connect(database_file) as conn:
         return pd.read_sql_query(query, conn)
 
+
+def _read_sql_optional(database_file, query):
+    if not database_file.exists():
+        return pd.DataFrame()
+    with sqlite3.connect(database_file) as conn:
+        try:
+            return pd.read_sql_query(query, conn)
+        except Exception:
+            return pd.DataFrame()
+
+
 def load_report_data(database_file):
     selic_df = _read_sql(database_file, "SELECT reference_date, value AS selic_daily_value FROM vw_bcb_series_values WHERE series_name = 'selic_daily' ORDER BY reference_date")
     ipca_df = _read_sql(database_file, "SELECT reference_date, value AS ipca_monthly_value FROM vw_bcb_series_values WHERE series_name = 'ipca_monthly' ORDER BY reference_date")
@@ -40,6 +51,9 @@ def load_report_data(database_file):
     bcb_snapshot_df = _read_sql(database_file, "SELECT * FROM vw_bcb_latest_snapshot ORDER BY series_name")
     b3_returns_df = _read_sql(database_file, "SELECT * FROM vw_b3_asset_returns ORDER BY asset_type, ticker")
     stocks_df = _read_sql(database_file, "SELECT reference_date, ticker, asset_type, open_price, high_price, low_price, close_price, adjusted_close_price, volume FROM vw_b3_stock_prices ORDER BY reference_date, ticker")
+    cvm_snapshot_df = _read_sql_optional(database_file, "SELECT * FROM vw_cvm_top_funds_by_net_asset LIMIT 100")
+    cvm_flows_df = _read_sql_optional(database_file, "SELECT * FROM vw_cvm_fund_flows_monthly ORDER BY reference_month")
+    cvm_daily_df = _read_sql_optional(database_file, "SELECT fund_cnpj, fund_name, reference_date, net_asset_value, quota_value, daily_subscriptions, daily_redemptions, number_of_shareholders FROM vw_cvm_fund_daily_reports ORDER BY reference_date, fund_name")
     selic_df["reference_date"] = pd.to_datetime(selic_df["reference_date"])
     ipca_df["reference_date"] = pd.to_datetime(ipca_df["reference_date"])
     bcb_series_df["reference_date"] = pd.to_datetime(bcb_series_df["reference_date"])
@@ -47,6 +61,10 @@ def load_report_data(database_file):
     b3_returns_df["start_date"] = pd.to_datetime(b3_returns_df["start_date"])
     b3_returns_df["end_date"] = pd.to_datetime(b3_returns_df["end_date"])
     stocks_df["reference_date"] = pd.to_datetime(stocks_df["reference_date"])
+    if not cvm_snapshot_df.empty:
+        cvm_snapshot_df["last_available_date"] = pd.to_datetime(cvm_snapshot_df["last_available_date"])
+    if not cvm_daily_df.empty:
+        cvm_daily_df["reference_date"] = pd.to_datetime(cvm_daily_df["reference_date"])
     if COVERAGE_REPORT_FILE.exists():
         coverage_df = pd.read_csv(COVERAGE_REPORT_FILE)
     else:
@@ -61,6 +79,9 @@ def load_report_data(database_file):
         "b3_returns": b3_returns_df,
         "stocks": stocks_df,
         "coverage": coverage_df,
+        "cvm_snapshot": cvm_snapshot_df,
+        "cvm_flows": cvm_flows_df,
+        "cvm_daily": cvm_daily_df,
     }
 
 def build_executive_metrics(data):
@@ -369,6 +390,45 @@ def create_coverage_sheet(workbook, data):
     _format_worksheet_columns(ws, 26)
 
 
+def create_cvm_funds_sheet(workbook, data):
+    ws = workbook.create_sheet("Fundos CVM")
+    ws["A1"] = "Fundos CVM"
+    ws["A1"].fill = TITLE_FILL
+    ws["A1"].font = TITLE_FONT
+
+    snapshot_df = data.get("cvm_snapshot", pd.DataFrame()).copy()
+    flows_df = data.get("cvm_flows", pd.DataFrame()).copy()
+    daily_df = data.get("cvm_daily", pd.DataFrame()).copy()
+    if snapshot_df.empty and daily_df.empty:
+        ws["A3"] = "Dados CVM nao carregados"
+        ws["A4"] = "Execute python src\\collect_data.py --include-cvm --cvm-year-month 202401 e depois a carga final."
+        _format_worksheet_columns(ws, 60)
+        return
+
+    ws["A3"] = "Top fundos por PL"
+    ws["A3"].fill = SECTION_FILL
+    ws["A3"].font = SECTION_FONT
+    top_df = snapshot_df.head(20) if not snapshot_df.empty else daily_df.sort_values("net_asset_value", ascending=False).head(20)
+    top_last_row, _ = _write_dataframe(ws, top_df, 5, 1, "tbl_cvm_top_funds")
+
+    start_row = top_last_row + 3
+    ws.cell(row=start_row, column=1, value="Fluxo mensal agregado").fill = SECTION_FILL
+    ws.cell(row=start_row, column=1).font = SECTION_FONT
+    if flows_df.empty:
+        ws.cell(row=start_row + 2, column=1, value="Sem fluxo mensal calculado.")
+    else:
+        _write_dataframe(ws, flows_df, start_row + 2, 1, "tbl_cvm_monthly_flows")
+
+    table_row = start_row + len(flows_df) + 6
+    ws.cell(row=table_row, column=1, value="Dados principais").fill = SECTION_FILL
+    ws.cell(row=table_row, column=1).font = SECTION_FONT
+    if not daily_df.empty:
+        sample_df = daily_df.tail(200)
+        _write_dataframe(ws, sample_df, table_row + 2, 1, "tbl_cvm_daily_sample")
+
+    _format_worksheet_columns(ws, 32)
+
+
 def create_financial_report(database_file, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
     data = load_report_data(database_file)
@@ -381,6 +441,7 @@ def create_financial_report(database_file, output_file):
     create_benchmarks_sheet(wb, data)
     create_coverage_sheet(wb, data)
     create_performance_sheet(wb, data)
+    create_cvm_funds_sheet(wb, data)
     wb.save(output_file)
     return {
         "output_file": str(output_file),
@@ -391,6 +452,8 @@ def create_financial_report(database_file, output_file):
         "tickers": sorted(data["stocks"]["ticker"].unique().tolist()),
         "coverage_datasets": len(data["coverage"]),
         "coverage_minimum_pct": data["coverage"]["coverage_pct"].min() if not data["coverage"].empty else None,
+        "cvm_fund_rows": len(data["cvm_daily"]),
+        "cvm_funds": data["cvm_daily"]["fund_cnpj"].nunique() if not data["cvm_daily"].empty else 0,
         "latest_selic_date": metrics["latest_selic"]["date"].strftime("%Y-%m-%d"),
         "latest_selic_value": metrics["latest_selic"]["value"],
         "ipca_accumulated_2024": metrics["ipca_accumulated_2024"],

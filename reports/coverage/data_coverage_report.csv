@@ -1,9 +1,9 @@
-source_name,dataset_name,expected_frequency,start_date,end_date,first_expected_date,last_expected_date,first_available_date,last_available_date,expected_observations,actual_observations,missing_observations,coverage_pct,status,missing_sample,generated_at
-BCB_SGS,cdi_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,,2026-06-28 13:38:13
-BCB_SGS,ipca_monthly,monthly,2024-01-01,2024-12-31,2024-01-01,2024-12-01,2024-01-01,2024-12-01,12,12,0,100.0,OK,,2026-06-28 13:38:13
-BCB_SGS,selic_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,,2026-06-28 13:38:13
-BCB_SGS,usd_brl_ptax_sell_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,,2026-06-28 13:38:13
-YAHOO_FINANCE,ITUB4.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-30,253,251,2,99.21,OK,"2024-12-24, 2024-12-31",2026-06-28 13:38:13
-YAHOO_FINANCE,PETR4.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-30,253,251,2,99.21,OK,"2024-12-24, 2024-12-31",2026-06-28 13:38:13
-YAHOO_FINANCE,VALE3.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-30,253,251,2,99.21,OK,"2024-12-24, 2024-12-31",2026-06-28 13:38:13
-YAHOO_FINANCE,^BVSP,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-30,253,251,2,99.21,OK,"2024-12-24, 2024-12-31",2026-06-28 13:38:13
+source_name,dataset_name,expected_frequency,start_date,end_date,first_expected_date,last_expected_date,first_available_date,last_available_date,expected_observations,actual_observations,missing_observations,coverage_pct,status,calendar_source,last_expected_trading_date,missing_sample,generated_at
+BCB_SGS,cdi_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,brazil_business_day,2024-12-31,,2026-06-28 14:16:55
+BCB_SGS,ipca_monthly,monthly,2024-01-01,2024-12-31,2024-01-01,2024-12-01,2024-01-01,2024-12-01,12,12,0,100.0,OK,monthly_calendar,2024-12-01,,2026-06-28 14:16:55
+BCB_SGS,selic_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,brazil_business_day,2024-12-31,,2026-06-28 14:16:55
+BCB_SGS,usd_brl_ptax_sell_daily,daily_business,2024-01-01,2024-12-31,2024-01-02,2024-12-31,2024-01-02,2024-12-31,253,253,0,100.0,OK,brazil_business_day,2024-12-31,,2026-06-28 14:16:55
+YAHOO_FINANCE,ITUB4.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-30,2024-01-02,2024-12-30,251,251,0,100.0,OK,manual_reference,2024-12-30,,2026-06-28 14:16:55
+YAHOO_FINANCE,PETR4.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-30,2024-01-02,2024-12-30,251,251,0,100.0,OK,manual_reference,2024-12-30,,2026-06-28 14:16:55
+YAHOO_FINANCE,VALE3.SA,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-30,2024-01-02,2024-12-30,251,251,0,100.0,OK,manual_reference,2024-12-30,,2026-06-28 14:16:55
+YAHOO_FINANCE,^BVSP,trading_day,2024-01-01,2024-12-31,2024-01-02,2024-12-30,2024-01-02,2024-12-30,251,251,0,100.0,OK,manual_reference,2024-12-30,,2026-06-28 14:16:55

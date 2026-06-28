@@ -34,6 +34,9 @@ def parse_args():
     parser.add_argument("--end", default="2024-12-31")
     parser.add_argument("--skip-collection", action="store_true")
     parser.add_argument("--skip-report", action="store_true")
+    parser.add_argument("--include-cvm", action="store_true")
+    parser.add_argument("--cvm-year-month", default=None)
+    parser.add_argument("--cvm-top-n", type=int, default=None)
     parser.add_argument(
         "--modules",
         nargs="+",
@@ -56,8 +59,16 @@ def _default_steps(args) -> list[str]:
 
 
 def _command_for_step(step: str, args) -> list[str]:
+    collect_command = [sys.executable, str(SRC_DIR / "collect_data.py"), "--start", args.start, "--end", args.end]
+    if args.include_cvm:
+        collect_command.append("--include-cvm")
+        if args.cvm_year_month:
+            collect_command.extend(["--cvm-year-month", args.cvm_year_month])
+        if args.cvm_top_n is not None:
+            collect_command.extend(["--cvm-top-n", str(args.cvm_top_n)])
+
     commands = {
-        "collect": [sys.executable, str(SRC_DIR / "collect_data.py"), "--start", args.start, "--end", args.end],
+        "collect": collect_command,
         "validate": [sys.executable, str(SRC_DIR / "validate_data.py")],
         "load": [sys.executable, str(SRC_DIR / "load_processed_data.py")],
         "coverage": [sys.executable, str(SRC_DIR / "coverage_report.py"), "--start", args.start, "--end", args.end],

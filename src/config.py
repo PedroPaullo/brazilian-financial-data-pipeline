@@ -5,6 +5,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 RAW_BCB_DIR = RAW_DATA_DIR / "bcb"
 RAW_B3_DIR = RAW_DATA_DIR / "b3"
+RAW_CVM_DIR = RAW_DATA_DIR / "cvm"
 
 BCB_SERIES = {
     "selic_daily": {"code": 11, "description": "Taxa Selic diaria", "frequency": "daily"},
@@ -21,6 +22,8 @@ OUTPUT_FILES = {
 }
 OUTPUT_FILES.update({
     "stock_prices_daily": RAW_B3_DIR / "stock_prices_daily.csv",
+    "cvm_funds_daily_reports": RAW_CVM_DIR / "funds_daily_reports.csv",
+    "cvm_funds_registry": RAW_CVM_DIR / "funds_registry.csv",
 })
 
 VALIDATION_DATA_DIR = PROJECT_ROOT / "data" / "validation"
