@@ -14,6 +14,8 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from config import (
+    BCB_SERIES,
+    COLLECTION_STATUS_JSON_FILE,
     COVERAGE_REPORT_FILE,
     COVERAGE_SUMMARY_FILE,
     FINANCIAL_REPORT_FILE,
@@ -24,6 +26,13 @@ from config import (
 from metadata.audit import ensure_audit_schema, register_dataset_version, register_reconciliation_checks, register_source_file
 from metadata.dataset_versioning import dataframe_dataset_version, file_dataset_version
 from metadata.manifest import get_git_commit, now_text
+from source_availability import (
+    EXPECTED_EMPTY_STATUSES,
+    STATUS_NOT_YET_AVAILABLE,
+    STATUS_SKIPPED,
+    STATUS_SUCCESS,
+    collection_status_by_series,
+)
 
 REPORT_DIR = PROJECT_ROOT / "reports" / "reconciliation"
 REPORT_RUNS_DIR = REPORT_DIR / "runs"
@@ -59,6 +68,90 @@ def _count(conn: sqlite3.Connection, table_name: str) -> int:
 def _duplicate_count(conn: sqlite3.Connection, table_name: str, keys: list[str]) -> int:
     key_sql = ", ".join(keys)
     return int(conn.execute(f"SELECT COUNT(*) FROM (SELECT {key_sql}, COUNT(*) FROM {table_name} GROUP BY {key_sql} HAVING COUNT(*) > 1)").fetchone()[0])
+
+
+def _csv_rows(path: Path) -> int:
+    if not path.exists() or path.stat().st_size == 0:
+        return 0
+    try:
+        return int(len(pd.read_csv(path)))
+    except Exception:
+        return 0
+
+
+def _collection_check_status(item: dict[str, Any]) -> tuple[str, str]:
+    status = item.get("status")
+    severity = item.get("severity", "ERROR")
+    if status == STATUS_SUCCESS:
+        return "INFO", "PASSED"
+    if status in EXPECTED_EMPTY_STATUSES:
+        return "WARNING", "FAILED"
+    if severity == "WARNING":
+        return "WARNING", "FAILED"
+    return "ERROR", "FAILED"
+
+
+def _add_collection_status_checks(checks: list[dict[str, Any]], run_id: str, database_file: Path) -> None:
+    by_series = collection_status_by_series()
+    if not by_series:
+        checks.append(_check(run_id, "collection_status_report_exists", "WARNING", "SKIPPED", "exists", False, details={"path": str(COLLECTION_STATUS_JSON_FILE)}))
+        return
+
+    checks.append(_check(run_id, "collection_status_report_exists", "INFO", "PASSED", "exists", True, details={"path": str(COLLECTION_STATUS_JSON_FILE)}))
+
+    loaded_counts: dict[str, int] = {}
+    if database_file.exists():
+        try:
+            with sqlite3.connect(database_file) as conn:
+                if _view_exists(conn, "vw_bcb_series_values"):
+                    loaded_counts = {
+                        str(row[0]): int(row[1])
+                        for row in conn.execute("SELECT series_name, COUNT(*) FROM vw_bcb_series_values GROUP BY series_name").fetchall()
+                    }
+        except Exception:
+            loaded_counts = {}
+
+    for series_name, metadata in BCB_SERIES.items():
+        item = by_series.get(series_name)
+        if not item:
+            checks.append(_check(run_id, f"collection_status:{series_name}", "ERROR", "FAILED", "status record", "missing"))
+            continue
+
+        severity, check_status = _collection_check_status(item)
+        checks.append(
+            _check(
+                run_id,
+                f"collection_status:{series_name}",
+                severity,
+                check_status,
+                "SUCCESS" if item.get("expected") else STATUS_NOT_YET_AVAILABLE,
+                item.get("status"),
+                details={
+                    "series_code": item.get("series_code"),
+                    "frequency": item.get("frequency"),
+                    "rows_collected": item.get("rows_collected"),
+                    "expected": item.get("expected"),
+                    "reason": item.get("reason"),
+                },
+            )
+        )
+
+        output_file = Path(item.get("output_file") or OUTPUT_FILES.get(series_name, ""))
+        csv_rows = _csv_rows(output_file)
+        if item.get("status") != STATUS_SUCCESS and csv_rows > 0:
+            checks.append(_check(run_id, f"stale_csv_reuse:{series_name}", "ERROR", "FAILED", 0, csv_rows, details={"path": str(output_file), "collection_status": item.get("status")}))
+        else:
+            checks.append(_check(run_id, f"stale_csv_reuse:{series_name}", "INFO", "PASSED", 0, csv_rows, details={"path": str(output_file), "collection_status": item.get("status")}))
+
+        loaded_rows = loaded_counts.get(series_name, 0)
+        if item.get("status") != STATUS_SUCCESS and loaded_rows > 0:
+            checks.append(_check(run_id, f"stale_processed_data:{series_name}", "ERROR", "FAILED", 0, loaded_rows, details={"collection_status": item.get("status")}))
+        elif item.get("status") == STATUS_SUCCESS and int(item.get("rows_collected") or 0) > 0 and loaded_rows == 0:
+            checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "ERROR", "FAILED", ">0", loaded_rows, details={"collection_rows": item.get("rows_collected")}))
+        elif item.get("status") in {STATUS_NOT_YET_AVAILABLE, STATUS_SKIPPED} and loaded_rows == 0:
+            checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "WARNING", "FAILED", "not loaded", loaded_rows, details={"collection_status": item.get("status")}))
+        else:
+            checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "INFO", "PASSED", "consistent", loaded_rows, details={"collection_status": item.get("status")}))
 
 
 def register_dataset_versions_from_local_state(run_id: str, database_file: Path = PROCESSED_DB_FILE) -> list[dict[str, Any]]:
@@ -120,6 +213,7 @@ def run_reconciliation(
         checks.append(_check(run_id, f"file_exists:{file_path.name}", "ERROR", "PASSED" if Path(file_path).exists() else "FAILED", "exists", Path(file_path).exists(), details={"path": str(file_path)}))
 
     checks.append(_check(run_id, "sqlite_database_exists", "ERROR", "PASSED" if database_file.exists() else "FAILED", "exists", database_file.exists(), details={"path": str(database_file)}))
+    _add_collection_status_checks(checks, run_id, database_file)
 
     dataset_versions: list[dict[str, Any]] = []
     if database_file.exists():

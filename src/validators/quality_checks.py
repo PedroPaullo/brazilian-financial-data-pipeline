@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Any
 import pandas as pd
 
+from config import BCB_SERIES
 from reference_data.b3_calendar import CALENDAR_FILE, calendar_source, get_missing_trading_dates
+from source_availability import EXPECTED_EMPTY_STATUSES, STATUS_SUCCESS, get_collection_item
 
 CRITICAL_COLUMNS = {
     "raw_selic_daily": ["source", "series_code", "series_name", "date", "value"],
@@ -20,6 +22,12 @@ def _now():
 
 def _execute_scalar(conn, query):
     return int(conn.execute(query).fetchone()[0])
+
+
+def _table_count(conn, table_name: str) -> int:
+    if not _table_exists(conn, table_name):
+        return 0
+    return int(conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0])
 
 def _build_result(results, check_category, check_name, dataset, rule_type, severity, rows_affected, details, evidence_query=None):
     if rows_affected == 0:
@@ -55,6 +63,70 @@ def _build_skipped(results, check_category, check_name, dataset, details):
         "evidence_query": "",
         "executed_at": _now(),
     })
+
+
+def _build_collection_absence_result(results, dataset: str, series_name: str, rows_loaded: int) -> None:
+    item = get_collection_item(series_name)
+    if item and item.get("status") in EXPECTED_EMPTY_STATUSES:
+        severity = "warning"
+        details = (
+            f"Fonte {series_name} vazia de forma esperada/controlada. "
+            f"status={item.get('status')}; expected={item.get('expected')}; motivo={item.get('reason')}"
+        )
+    else:
+        severity = "error"
+        status = item.get("status") if item else "MISSING_COLLECTION_STATUS"
+        details = (
+            f"Fonte {series_name} sem dados carregados quando havia expectativa de dado. "
+            f"status={status}; rows_loaded={rows_loaded}."
+        )
+    _build_result(
+        results,
+        "source_availability",
+        f"{series_name}_empty_source_status",
+        dataset,
+        "collection_status",
+        severity,
+        1,
+        details,
+    )
+
+
+def _check_collection_statuses(conn, results):
+    for series_name, metadata in BCB_SERIES.items():
+        table_name = "raw_ipca_monthly" if series_name == "ipca_monthly" else "raw_bcb_series"
+        if series_name == "selic_daily":
+            table_name = "raw_selic_daily"
+
+        item = get_collection_item(series_name)
+        if table_name == "raw_bcb_series" and _table_exists(conn, table_name):
+            rows_loaded = int(
+                conn.execute(
+                    "SELECT COUNT(*) FROM raw_bcb_series WHERE series_name = ?",
+                    (series_name,),
+                ).fetchone()[0]
+            )
+        else:
+            rows_loaded = _table_count(conn, table_name)
+
+        if rows_loaded == 0:
+            _build_collection_absence_result(results, table_name, series_name, rows_loaded)
+            continue
+
+        if item and item.get("status") != STATUS_SUCCESS:
+            _build_result(
+                results,
+                "source_availability",
+                f"{series_name}_stale_csv_reuse",
+                table_name,
+                "collection_status",
+                "error",
+                rows_loaded,
+                (
+                    f"CSV contem {rows_loaded} linhas, mas o status da coleta atual foi "
+                    f"{item.get('status')}. Isso indica risco de dado obsoleto reaproveitado."
+                ),
+            )
 
 
 def _table_exists(conn, table_name: str) -> bool:
@@ -117,6 +189,9 @@ def _load_dates(conn, table, key_col=None):
 
 def _check_selic_coverage(conn, results, gaps):
     df = _load_dates(conn, "raw_selic_daily")
+    if df.empty:
+        _build_collection_absence_result(results, "raw_selic_daily", "selic_daily", 0)
+        return
     expected = pd.date_range(df["date"].min(), df["date"].max(), freq="B")
     missing = expected.difference(pd.DatetimeIndex(df["date"].drop_duplicates()))
     for d in missing:
@@ -125,6 +200,9 @@ def _check_selic_coverage(conn, results, gaps):
 
 def _check_ipca_coverage(conn, results, gaps):
     df = _load_dates(conn, "raw_ipca_monthly")
+    if df.empty:
+        _build_collection_absence_result(results, "raw_ipca_monthly", "ipca_monthly", 0)
+        return
     expected = pd.date_range(df["date"].min().replace(day=1), df["date"].max().replace(day=1), freq="MS")
     actual = pd.DatetimeIndex(df["date"].dt.to_period("M").dt.to_timestamp().drop_duplicates())
     missing = expected.difference(actual)
@@ -134,6 +212,18 @@ def _check_ipca_coverage(conn, results, gaps):
 
 def _check_stock_coverage(conn, results, gaps):
     df = _load_dates(conn, "raw_stock_prices_daily", "ticker")
+    if df.empty:
+        _build_result(
+            results,
+            "source_availability",
+            "stock_prices_daily_empty_source_status",
+            "raw_stock_prices_daily",
+            "collection_status",
+            "error",
+            1,
+            "Cotacoes B3 vazias sem status controlado de coleta.",
+        )
+        return
     total_missing = 0
     for ticker, tdf in df.groupby("ticker"):
         missing = get_missing_trading_dates(
@@ -160,6 +250,10 @@ def _check_stock_coverage(conn, results, gaps):
 
 def _check_bcb_series_coverage(conn, results, gaps):
     df = _load_dates(conn, "raw_bcb_series", "series_name")
+    if df.empty:
+        for series_name in BCB_SERIES:
+            _build_collection_absence_result(results, "raw_bcb_series", series_name, 0)
+        return
     total_missing_daily = 0
     total_missing_monthly = 0
 
@@ -229,6 +323,7 @@ def _check_cvm_funds(conn, results):
 def run_quality_checks(database_file):
     results, gaps = [], []
     with sqlite3.connect(database_file) as conn:
+        _check_collection_statuses(conn, results)
         _check_nulls(conn, results)
         _check_duplicates(conn, results)
         _check_negative_values(conn, results)

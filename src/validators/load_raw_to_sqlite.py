@@ -2,13 +2,24 @@
 import sqlite3
 from pathlib import Path
 import pandas as pd
+from pandas.errors import EmptyDataError
+
+from source_availability import empty_dataframe_for_series, output_series_for_file
 
 def _read_csv_safely(file_path: Path) -> pd.DataFrame:
+    series_name = output_series_for_file(file_path)
     if not file_path.exists():
+        if series_name:
+            return empty_dataframe_for_series(series_name)
         raise FileNotFoundError(f"Arquivo nao encontrado: {file_path}")
-    df = pd.read_csv(file_path)
-    if df.empty:
-        raise ValueError(f"Arquivo vazio: {file_path}")
+    try:
+        df = pd.read_csv(file_path)
+    except EmptyDataError:
+        if series_name:
+            return empty_dataframe_for_series(series_name)
+        raise ValueError(f"Arquivo sem cabecalho: {file_path}")
+    if df.empty and series_name and not set(empty_dataframe_for_series(series_name).columns).issubset(df.columns):
+        return empty_dataframe_for_series(series_name)
     return df
 
 def _standardize_date_column(df: pd.DataFrame, date_column: str = "date") -> pd.DataFrame:

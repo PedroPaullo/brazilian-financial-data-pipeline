@@ -8,10 +8,10 @@ RAW_B3_DIR = RAW_DATA_DIR / "b3"
 RAW_CVM_DIR = RAW_DATA_DIR / "cvm"
 
 BCB_SERIES = {
-    "selic_daily": {"code": 11, "description": "Taxa Selic diaria", "frequency": "daily"},
-    "ipca_monthly": {"code": 433, "description": "IPCA mensal", "frequency": "monthly"},
-    "usd_brl_ptax_sell_daily": {"code": 1, "description": "Dolar americano venda PTAX diario", "frequency": "daily"},
-    "cdi_daily": {"code": 12, "description": "Taxa CDI diaria", "frequency": "daily"},
+    "selic_daily": {"code": 11, "description": "Taxa Selic diaria", "frequency": "daily", "required": True, "publication_lag_days": 1},
+    "ipca_monthly": {"code": 433, "description": "IPCA mensal", "frequency": "monthly", "required": True, "publication_lag_days": 15},
+    "usd_brl_ptax_sell_daily": {"code": 1, "description": "Dolar americano venda PTAX diario", "frequency": "daily", "required": True, "publication_lag_days": 1},
+    "cdi_daily": {"code": 12, "description": "Taxa CDI diaria", "frequency": "daily", "required": True, "publication_lag_days": 1},
 }
 
 DEFAULT_B3_TICKERS = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "^BVSP"]
@@ -44,6 +44,10 @@ OPERATIONS_DB_FILE = OPERATIONS_DATA_DIR / "pipeline_operations.db"
 
 REPORTS_DIR = PROJECT_ROOT / "reports"
 FINANCIAL_REPORT_FILE = REPORTS_DIR / "financial_report.xlsx"
+
+COLLECTION_REPORT_DIR = REPORTS_DIR / "collection"
+COLLECTION_STATUS_JSON_FILE = COLLECTION_REPORT_DIR / "latest_collection_status.json"
+COLLECTION_STATUS_MD_FILE = COLLECTION_REPORT_DIR / "latest_collection_status.md"
 
 OPERATIONS_REPORT_DIR = REPORTS_DIR / "operations"
 ALERTS_JSON_FILE = OPERATIONS_REPORT_DIR / "alerts.json"
