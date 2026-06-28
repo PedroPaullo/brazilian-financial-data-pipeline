@@ -1,5 +1,9 @@
 ## Brazilian Financial Data Pipeline
 
+![Python 3.10](https://img.shields.io/badge/python-3.10-blue.svg)
+![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)
+![Last commit](https://img.shields.io/github/last-commit/PedroPaullo/brazilian-financial-data-pipeline)
+
 Pipeline completo de dados financeiros brasileiros: coleta automatizada, validação de qualidade, armazenamento normalizado e relatório Excel executivo.
 
 ## Problema
