@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import OUTPUT_FILES, VALIDATION_DB_FILE, VALIDATION_OUTPUT_FILES
 from validators.load_raw_to_sqlite import load_raw_files_to_sqlite
 from validators.quality_checks import run_quality_checks, save_validation_outputs
+from logger import get_logger
+
+logger = get_logger(__name__)
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -19,7 +22,7 @@ def parse_args():
 
 def main():
     args = parse_args()
-    print("Iniciando Modulo 2 - Validacao de dados")
+    logger.info("Iniciando Modulo 2 - Validacao de dados")
 
     loaded_rows = load_raw_files_to_sqlite(
         selic_file=Path(args.selic_file),
@@ -28,9 +31,9 @@ def main():
         database_file=Path(args.database_file),
     )
 
-    print("\nRegistros carregados no SQLite:")
+    logger.info("Registros carregados no SQLite:")
     for table, count in loaded_rows.items():
-        print(f"  {table}: {count} linhas")
+        logger.info("  %s: %s linhas", table, count)
 
     results_df, gaps_df, summary = run_quality_checks(Path(args.database_file))
 
@@ -43,21 +46,21 @@ def main():
         date_gaps_detail_file=VALIDATION_OUTPUT_FILES["date_gaps_detail"],
     )
 
-    print("\n" + "=" * 60)
-    print("RESUMO DA VALIDACAO - MODULO 2")
-    print("=" * 60)
-    print(f"Status geral : {summary['overall_status']}")
-    print(f"Total checks : {summary['total_checks']}")
-    print(f"PASS         : {summary['pass']}")
-    print(f"WARN         : {summary['warn']}")
-    print(f"FAIL         : {summary['fail']}")
-    print("=" * 60)
+    logger.info("=" * 60)
+    logger.info("RESUMO DA VALIDACAO - MODULO 2")
+    logger.info("=" * 60)
+    logger.info("Status geral : %s", summary["overall_status"])
+    logger.info("Total checks : %s", summary["total_checks"])
+    logger.info("PASS         : %s", summary["pass"])
+    logger.info("WARN         : %s", summary["warn"])
+    logger.info("FAIL         : %s", summary["fail"])
+    logger.info("=" * 60)
 
     if summary["fail"] > 0:
-        print("\nValidacao concluida COM FALHAS.")
+        logger.error("Validacao concluida COM FALHAS.")
         raise SystemExit(1)
 
-    print("\nValidacao concluida sem falhas criticas.")
+    logger.info("Validacao concluida sem falhas criticas.")
 
 if __name__ == "__main__":
     main()
