@@ -32,5 +32,8 @@ VALIDATION_OUTPUT_FILES = {
 PROCESSED_DATA_DIR = PROJECT_ROOT / "data" / "processed"
 PROCESSED_DB_FILE = PROCESSED_DATA_DIR / "financial_data.db"
 
+OPERATIONS_DATA_DIR = PROJECT_ROOT / "data" / "operations"
+OPERATIONS_DB_FILE = OPERATIONS_DATA_DIR / "pipeline_operations.db"
+
 REPORTS_DIR = PROJECT_ROOT / "reports"
 FINANCIAL_REPORT_FILE = REPORTS_DIR / "financial_report.xlsx"

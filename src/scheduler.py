@@ -12,6 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from config import PROJECT_ROOT
 from logger import get_logger
+from monitoring import finish_pipeline_run, start_pipeline_run
 
 TIMEZONE = "America/Sao_Paulo"
 SRC_DIR = Path(__file__).resolve().parent
@@ -37,14 +38,20 @@ def parse_args():
 
 
 def run_pipeline():
+    run_id = start_pipeline_run("full_pipeline")
     logger.info("Iniciando execucao completa do pipeline financeiro.")
 
-    for step_name, command in PIPELINE_STEPS:
-        logger.info("Iniciando etapa: %s", step_name)
-        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
-        logger.info("Etapa concluida: %s", step_name)
+    try:
+        for step_name, command in PIPELINE_STEPS:
+            logger.info("Iniciando etapa: %s", step_name)
+            subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+            logger.info("Etapa concluida: %s", step_name)
 
-    logger.info("Pipeline financeiro finalizado com sucesso.")
+        finish_pipeline_run(run_id, "SUCCESS", errors_count=0)
+        logger.info("Pipeline financeiro finalizado com sucesso.")
+    except Exception as exc:
+        finish_pipeline_run(run_id, "FAILED", errors_count=1, error_message=str(exc))
+        raise
 
 
 def create_scheduler():

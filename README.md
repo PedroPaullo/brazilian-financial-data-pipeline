@@ -85,6 +85,15 @@ Para testar uma execução única sem deixar o agendador ativo:
 python src/scheduler.py --run-now
 ```
 
+## Observabilidade operacional
+
+As execuções dos módulos são registradas em `data/operations/pipeline_operations.db`, ignorado pelo Git por ser um artefato local. Esse banco armazena:
+
+- `pipeline_runs`: histórico recente de execuções, status, duração e contagens.
+- `source_freshness`: última data disponível por fonte, frequência esperada e status.
+
+O dashboard usa essas tabelas na página `Status do Pipeline`.
+
 ## Resultados
 
 - Selic 2024: 0.045513% ao dia (última leitura: 31/12/2024)

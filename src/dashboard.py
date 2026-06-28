@@ -12,7 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
+from config import OPERATIONS_DB_FILE, PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
 
 PAGE_OPTIONS = (
     "Resumo Executivo",
@@ -80,6 +80,55 @@ def load_quality_results(results_path: str) -> pd.DataFrame:
 @st.cache_data(show_spinner=True)
 def load_date_gaps(gaps_path: str) -> pd.DataFrame:
     return pd.read_csv(gaps_path)
+
+
+@st.cache_data(show_spinner=True)
+def load_pipeline_runs(operations_db_path: str) -> pd.DataFrame:
+    database_file = Path(operations_db_path)
+    if not database_file.exists():
+        return pd.DataFrame()
+
+    query = """
+        SELECT
+            run_id,
+            module_name,
+            started_at,
+            finished_at,
+            status,
+            records_input,
+            records_output,
+            warnings_count,
+            errors_count,
+            execution_time_seconds,
+            error_message
+        FROM pipeline_runs
+        ORDER BY run_id DESC
+        LIMIT 20
+    """
+
+    return read_sql_query(operations_db_path, query)
+
+
+@st.cache_data(show_spinner=True)
+def load_operational_source_freshness(operations_db_path: str) -> pd.DataFrame:
+    database_file = Path(operations_db_path)
+    if not database_file.exists():
+        return pd.DataFrame()
+
+    query = """
+        SELECT
+            source_name,
+            dataset_name,
+            last_available_date,
+            expected_frequency,
+            status,
+            records_count,
+            updated_at
+        FROM source_freshness
+        ORDER BY source_name, dataset_name
+    """
+
+    return read_sql_query(operations_db_path, query)
 
 
 @st.cache_data(show_spinner=True)
@@ -277,6 +326,34 @@ def build_freshness_df(
     return freshness_df
 
 
+def build_operational_freshness_display(source_freshness_df: pd.DataFrame) -> pd.DataFrame:
+    display_df = source_freshness_df.copy()
+    display_df["fonte"] = display_df["source_name"] + " - " + display_df["dataset_name"]
+    display_df["ultima_data"] = pd.to_datetime(display_df["last_available_date"]).dt.strftime("%d/%m/%Y")
+    display_df["dias_desde_ultima_data"] = (
+        pd.Timestamp.today().normalize()
+        - pd.to_datetime(display_df["last_available_date"]).dt.normalize()
+    ).dt.days
+    display_df = display_df.rename(
+        columns={
+            "expected_frequency": "frequencia_esperada",
+            "records_count": "registros",
+            "updated_at": "atualizado_em",
+        }
+    )
+    return display_df[
+        [
+            "fonte",
+            "ultima_data",
+            "frequencia_esperada",
+            "status",
+            "registros",
+            "dias_desde_ultima_data",
+            "atualizado_em",
+        ]
+    ]
+
+
 def render_header() -> None:
     st.title("Brazilian Financial Data Pipeline")
 
@@ -367,7 +444,15 @@ def render_pipeline_status_page(
 ) -> None:
     st.header("Status do Pipeline")
 
-    freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df)
+    pipeline_runs_df = load_pipeline_runs(str(OPERATIONS_DB_FILE))
+    source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
+
+    if source_freshness_df.empty:
+        freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df)
+        st.info("Freshness calculado em tempo real. Execute o pipeline para popular o historico operacional.")
+    else:
+        freshness_df = build_operational_freshness_display(source_freshness_df)
+
     status_counts = freshness_df["status"].value_counts().to_dict()
 
     col1, col2, col3, col4 = st.columns(4)
@@ -389,6 +474,35 @@ def render_pipeline_status_page(
         labels={"fonte": "Fonte", "dias_desde_ultima_data": "Dias", "status": "Status"},
     )
     st.plotly_chart(fig, use_container_width=True)
+
+    st.markdown("---")
+    st.subheader("Historico recente de execucoes")
+
+    if pipeline_runs_df.empty:
+        st.info("Nenhuma execucao registrada em pipeline_runs ainda.")
+        return
+
+    latest_run = pipeline_runs_df.iloc[0]
+    run_col1, run_col2, run_col3, run_col4 = st.columns(4)
+    run_col1.metric("Ultima execucao", latest_run["module_name"])
+    run_col2.metric("Status", latest_run["status"])
+    run_col3.metric("Duracao (s)", format_number(latest_run["execution_time_seconds"], 2))
+    run_col4.metric("Falhas recentes", int((pipeline_runs_df["status"] == "FAILED").sum()))
+
+    st.dataframe(pipeline_runs_df, use_container_width=True, hide_index=True)
+
+    duration_df = pipeline_runs_df.dropna(subset=["execution_time_seconds"]).copy()
+    if not duration_df.empty:
+        fig_runs = px.bar(
+            duration_df.sort_values("run_id"),
+            x="run_id",
+            y="execution_time_seconds",
+            color="status",
+            hover_data=["module_name", "records_input", "records_output"],
+            title="Duracao das ultimas execucoes registradas",
+            labels={"run_id": "Run", "execution_time_seconds": "Segundos", "status": "Status"},
+        )
+        st.plotly_chart(fig_runs, use_container_width=True)
 
 
 def render_data_quality_page() -> None:

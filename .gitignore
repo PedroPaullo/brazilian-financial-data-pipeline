@@ -6,6 +6,8 @@ __pycache__/
 .env
 data/raw/**/*.csv
 data/raw/**/*.json
+data/operations/*.db
+data/operations/*.db-*
 *.log
 .vscode/
 .idea/
