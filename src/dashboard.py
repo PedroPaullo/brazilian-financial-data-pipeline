@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -11,10 +12,12 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import PROCESSED_DB_FILE
+from config import PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
 
 PAGE_OPTIONS = (
     "Resumo Executivo",
+    "Status do Pipeline",
+    "Qualidade dos Dados",
     "Selic Diaria",
     "IPCA Mensal",
     "Cotacoes B3",
@@ -49,10 +52,34 @@ def validate_database_exists(database_file: Path) -> None:
     st.stop()
 
 
+def stop_if_missing_file(file_path: Path, message: str) -> None:
+    if file_path.exists():
+        return
+
+    st.warning(f"{message}\n\nArquivo esperado: `{file_path}`")
+    st.stop()
+
+
 @st.cache_data(show_spinner=False)
 def read_sql_query(database_path: str, query: str) -> pd.DataFrame:
     with sqlite3.connect(database_path) as conn:
         return pd.read_sql_query(query, conn)
+
+
+@st.cache_data(show_spinner=False)
+def load_quality_summary(summary_path: str) -> dict[str, Any]:
+    with open(summary_path, "r", encoding="utf-8") as file:
+        return json.load(file)
+
+
+@st.cache_data(show_spinner=True)
+def load_quality_results(results_path: str) -> pd.DataFrame:
+    return pd.read_csv(results_path)
+
+
+@st.cache_data(show_spinner=True)
+def load_date_gaps(gaps_path: str) -> pd.DataFrame:
+    return pd.read_csv(gaps_path)
 
 
 @st.cache_data(show_spinner=True)
@@ -193,6 +220,63 @@ def format_number(value: float | int | None, decimals: int = 2) -> str:
     return f"{value:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def classify_freshness(reference_date: pd.Timestamp, max_age_days: int, warning_age_days: int) -> str:
+    age_days = (pd.Timestamp.today().normalize() - reference_date.normalize()).days
+
+    if age_days <= max_age_days:
+        return "OK"
+    if age_days <= warning_age_days:
+        return "Atencao"
+    return "Desatualizado"
+
+
+def build_freshness_df(
+    selic_df: pd.DataFrame,
+    ipca_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+
+    latest_selic_date = selic_df["reference_date"].max()
+    rows.append(
+        {
+            "fonte": "BCB Selic diaria",
+            "ultima_data": latest_selic_date,
+            "registros": len(selic_df),
+            "status": classify_freshness(latest_selic_date, max_age_days=3, warning_age_days=7),
+        }
+    )
+
+    latest_ipca_date = ipca_df["reference_date"].max()
+    rows.append(
+        {
+            "fonte": "BCB IPCA mensal",
+            "ultima_data": latest_ipca_date,
+            "registros": len(ipca_df),
+            "status": classify_freshness(latest_ipca_date, max_age_days=45, warning_age_days=75),
+        }
+    )
+
+    for ticker, ticker_df in stocks_df.groupby("ticker"):
+        latest_stock_date = ticker_df["reference_date"].max()
+        rows.append(
+            {
+                "fonte": f"B3 {ticker}",
+                "ultima_data": latest_stock_date,
+                "registros": len(ticker_df),
+                "status": classify_freshness(latest_stock_date, max_age_days=3, warning_age_days=7),
+            }
+        )
+
+    freshness_df = pd.DataFrame(rows)
+    freshness_df["dias_desde_ultima_data"] = (
+        pd.Timestamp.today().normalize() - freshness_df["ultima_data"].dt.normalize()
+    ).dt.days
+    freshness_df["ultima_data"] = freshness_df["ultima_data"].dt.strftime("%d/%m/%Y")
+
+    return freshness_df
+
+
 def render_header() -> None:
     st.title("Brazilian Financial Data Pipeline")
 
@@ -274,6 +358,120 @@ def render_executive_summary(
     fig_returns.update_layout(yaxis_ticksuffix="%", uniformtext_minsize=8, uniformtext_mode="hide")
 
     st.plotly_chart(fig_returns, use_container_width=True)
+
+
+def render_pipeline_status_page(
+    selic_df: pd.DataFrame,
+    ipca_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+) -> None:
+    st.header("Status do Pipeline")
+
+    freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df)
+    status_counts = freshness_df["status"].value_counts().to_dict()
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Fontes monitoradas", len(freshness_df))
+    col2.metric("OK", status_counts.get("OK", 0))
+    col3.metric("Atencao", status_counts.get("Atencao", 0))
+    col4.metric("Desatualizado", status_counts.get("Desatualizado", 0))
+
+    st.markdown("---")
+    st.subheader("Freshness por fonte")
+    st.dataframe(freshness_df, use_container_width=True, hide_index=True)
+
+    fig = px.bar(
+        freshness_df,
+        x="fonte",
+        y="dias_desde_ultima_data",
+        color="status",
+        title="Dias desde a ultima data disponivel",
+        labels={"fonte": "Fonte", "dias_desde_ultima_data": "Dias", "status": "Status"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_data_quality_page() -> None:
+    st.header("Qualidade dos Dados")
+
+    quality_summary_file = VALIDATION_OUTPUT_FILES["quality_summary"]
+    quality_results_file = VALIDATION_OUTPUT_FILES["quality_results"]
+    date_gaps_file = VALIDATION_OUTPUT_FILES["date_gaps_detail"]
+
+    stop_if_missing_file(quality_summary_file, "Resumo de qualidade nao encontrado.")
+    stop_if_missing_file(quality_results_file, "Resultados de qualidade nao encontrados.")
+    stop_if_missing_file(date_gaps_file, "Detalhe de gaps de datas nao encontrado.")
+
+    summary = load_quality_summary(str(quality_summary_file))
+    results_df = load_quality_results(str(quality_results_file))
+    gaps_df = load_date_gaps(str(date_gaps_file))
+
+    col1, col2, col3, col4, col5 = st.columns(5)
+    col1.metric("Status geral", summary.get("overall_status", "N/D"))
+    col2.metric("Checks", summary.get("total_checks", 0))
+    col3.metric("PASS", summary.get("pass", 0))
+    col4.metric("WARN", summary.get("warn", 0))
+    col5.metric("FAIL", summary.get("fail", 0))
+
+    st.caption(f"Ultima validacao: {summary.get('generated_at', 'N/D')}")
+
+    st.markdown("---")
+    st.subheader("Checks por status")
+
+    status_df = (
+        results_df.groupby(["status", "severity"], dropna=False)
+        .size()
+        .reset_index(name="checks")
+        .sort_values(["status", "severity"])
+    )
+    st.dataframe(status_df, use_container_width=True, hide_index=True)
+
+    fig = px.bar(
+        status_df,
+        x="status",
+        y="checks",
+        color="severity",
+        title="Distribuicao dos checks de qualidade",
+        labels={"status": "Status", "checks": "Checks", "severity": "Severidade"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    relevant_checks_df = results_df[results_df["status"].isin(["WARN", "FAIL"])].copy()
+    st.subheader("Alertas e falhas")
+    if relevant_checks_df.empty:
+        st.success("Nenhum WARN ou FAIL encontrado.")
+    else:
+        st.dataframe(
+            relevant_checks_df[
+                [
+                    "check_id",
+                    "check_category",
+                    "check_name",
+                    "dataset",
+                    "severity",
+                    "status",
+                    "rows_affected",
+                    "details",
+                ]
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.subheader("Gaps de datas")
+    if gaps_df.empty:
+        st.success("Nenhum gap de data encontrado.")
+    else:
+        gaps_summary_df = (
+            gaps_df.groupby(["dataset", "key", "check_name"], dropna=False)
+            .size()
+            .reset_index(name="gaps")
+            .sort_values("gaps", ascending=False)
+        )
+        st.dataframe(gaps_summary_df, use_container_width=True, hide_index=True)
+
+        with st.expander("Detalhe dos gaps"):
+            st.dataframe(gaps_df, use_container_width=True, hide_index=True)
 
 
 def render_selic_page(selic_df: pd.DataFrame) -> None:
@@ -464,6 +662,10 @@ def main() -> None:
 
     if page == "Resumo Executivo":
         render_executive_summary(selic_df, ipca_df, stocks_df)
+    elif page == "Status do Pipeline":
+        render_pipeline_status_page(selic_df, ipca_df, stocks_df)
+    elif page == "Qualidade dos Dados":
+        render_data_quality_page()
     elif page == "Selic Diaria":
         render_selic_page(selic_df)
     elif page == "IPCA Mensal":

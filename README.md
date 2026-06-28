@@ -40,16 +40,50 @@ coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite
 
 ## Stack
 
-Python 3.10 · pandas · requests · yfinance · SQLite · openpyxl
+Python 3.10 · pandas · requests · yfinance · SQLite · openpyxl · Streamlit · Plotly · APScheduler
 
-## Como executar
+## Ambiente recomendado
 
+Use Python 3.10 em um ambiente virtual dedicado ao projeto. Evite executar com o ambiente base do Anaconda ativo, porque pacotes instalados no user-site podem causar conflitos de NumPy/pandas/Plotly.
+
+No PowerShell, se houver conflito de pacotes locais:
+
+```powershell
+$env:PYTHONNOUSERSITE="1"
+```
+
+## Como executar o pipeline
+
+```powershell
 pip install -r requirements.txt
 
 python src/collect_data.py --start 2024-01-01 --end 2024-12-31
 python src/validate_data.py
 python src/load_processed_data.py
 python src/generate_report.py
+```
+
+## Dashboard
+
+O dashboard Streamlit lê o SQLite final e os artefatos de validação para exibir visão executiva, indicadores de freshness, qualidade dos dados, Selic, IPCA e cotações B3.
+
+```powershell
+python -m streamlit run src\dashboard.py
+```
+
+## Agendamento
+
+O scheduler executa coleta, validação, carga e relatório automaticamente em dias úteis às 07:00.
+
+```powershell
+python src/scheduler.py
+```
+
+Para testar uma execução única sem deixar o agendador ativo:
+
+```powershell
+python src/scheduler.py --run-now
+```
 
 ## Resultados
 
