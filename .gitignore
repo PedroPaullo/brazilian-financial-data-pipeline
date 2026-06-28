@@ -8,6 +8,8 @@ data/raw/**/*.csv
 data/raw/**/*.json
 data/operations/*.db
 data/operations/*.db-*
+reports/operations/*.json
+reports/operations/*.csv
 *.log
 .vscode/
 .idea/

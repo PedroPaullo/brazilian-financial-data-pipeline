@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from config import OPERATIONS_DB_FILE, PROCESSED_DB_FILE
+from financial_calendar import calculate_lag_days, classify_freshness_status, source_sla
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS pipeline_runs (
@@ -30,10 +31,33 @@ CREATE TABLE IF NOT EXISTS source_freshness (
     expected_frequency TEXT NOT NULL,
     status TEXT NOT NULL,
     records_count INTEGER NOT NULL DEFAULT 0,
+    max_lag_days INTEGER,
+    lag_days INTEGER,
+    freshness_status TEXT,
+    details TEXT,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (source_name, dataset_name)
 );
+
+CREATE TABLE IF NOT EXISTS data_artifacts (
+    artifact_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER,
+    artifact_type TEXT NOT NULL,
+    artifact_path TEXT NOT NULL,
+    dataset_name TEXT,
+    created_at TEXT NOT NULL,
+    row_count INTEGER,
+    status TEXT NOT NULL,
+    details TEXT
+);
 """
+
+SOURCE_FRESHNESS_COLUMNS = {
+    "max_lag_days": "INTEGER",
+    "lag_days": "INTEGER",
+    "freshness_status": "TEXT",
+    "details": "TEXT",
+}
 
 
 def now_text() -> str:
@@ -44,7 +68,18 @@ def initialize_monitoring_db(database_file: Path = OPERATIONS_DB_FILE) -> None:
     database_file.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(database_file) as conn:
         conn.executescript(SCHEMA_SQL)
+        _ensure_columns(conn, "source_freshness", SOURCE_FRESHNESS_COLUMNS)
         conn.commit()
+
+
+def _ensure_columns(conn: sqlite3.Connection, table_name: str, columns: dict[str, str]) -> None:
+    existing_columns = {
+        row[1]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_type in columns.items():
+        if column_name not in existing_columns:
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
 
 
 def start_pipeline_run(module_name: str, database_file: Path = OPERATIONS_DB_FILE) -> int:
@@ -111,34 +146,25 @@ def finish_pipeline_run(
         conn.commit()
 
 
-def classify_source_freshness(last_available_date: pd.Timestamp, expected_frequency: str) -> str:
-    age_days = (pd.Timestamp.today().normalize() - last_available_date.normalize()).days
-
-    if expected_frequency == "monthly":
-        if age_days <= 45:
-            return "OK"
-        if age_days <= 75:
-            return "Atencao"
-        return "Desatualizado"
-
-    if age_days <= 3:
-        return "OK"
-    if age_days <= 7:
-        return "Atencao"
-    return "Desatualizado"
-
-
 def upsert_source_freshness(
     source_name: str,
     dataset_name: str,
     last_available_date: str,
     expected_frequency: str,
     records_count: int,
+    max_lag_days: int | None = None,
+    details: str | None = None,
     database_file: Path = OPERATIONS_DB_FILE,
 ) -> None:
     initialize_monitoring_db(database_file)
     last_date = pd.to_datetime(last_available_date)
-    status = classify_source_freshness(last_date, expected_frequency)
+    if max_lag_days is None:
+        sla = source_sla(dataset_name, source_name)
+        expected_frequency = str(sla["expected_frequency"])
+        max_lag_days = int(sla["max_lag_days"])
+
+    lag_days = calculate_lag_days(last_date, frequency=expected_frequency)
+    freshness_status = classify_freshness_status(lag_days, max_lag_days)
 
     with sqlite3.connect(database_file) as conn:
         conn.execute(
@@ -150,14 +176,22 @@ def upsert_source_freshness(
                 expected_frequency,
                 status,
                 records_count,
+                max_lag_days,
+                lag_days,
+                freshness_status,
+                details,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_name, dataset_name) DO UPDATE SET
                 last_available_date = excluded.last_available_date,
                 expected_frequency = excluded.expected_frequency,
                 status = excluded.status,
                 records_count = excluded.records_count,
+                max_lag_days = excluded.max_lag_days,
+                lag_days = excluded.lag_days,
+                freshness_status = excluded.freshness_status,
+                details = excluded.details,
                 updated_at = excluded.updated_at
             """,
             (
@@ -165,9 +199,54 @@ def upsert_source_freshness(
                 dataset_name,
                 last_date.strftime("%Y-%m-%d"),
                 expected_frequency,
-                status,
+                freshness_status,
                 records_count,
+                max_lag_days,
+                lag_days,
+                freshness_status,
+                details or "",
                 now_text(),
+            ),
+        )
+        conn.commit()
+
+
+def record_data_artifact(
+    artifact_type: str,
+    artifact_path: Path,
+    dataset_name: str | None = None,
+    row_count: int | None = None,
+    status: str = "CREATED",
+    details: str | None = None,
+    run_id: int | None = None,
+    database_file: Path = OPERATIONS_DB_FILE,
+) -> None:
+    initialize_monitoring_db(database_file)
+    artifact_path = Path(artifact_path)
+    with sqlite3.connect(database_file) as conn:
+        conn.execute(
+            """
+            INSERT INTO data_artifacts (
+                run_id,
+                artifact_type,
+                artifact_path,
+                dataset_name,
+                created_at,
+                row_count,
+                status,
+                details
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                artifact_type,
+                str(artifact_path),
+                dataset_name,
+                now_text(),
+                row_count,
+                status,
+                details or "",
             ),
         )
         conn.commit()

@@ -22,6 +22,7 @@ PIPELINE_STEPS = (
     ("validacao", [sys.executable, str(SRC_DIR / "validate_data.py")]),
     ("armazenamento", [sys.executable, str(SRC_DIR / "load_processed_data.py")]),
     ("relatorio", [sys.executable, str(SRC_DIR / "generate_report.py")]),
+    ("alertas", [sys.executable, str(SRC_DIR / "alerts.py")]),
 )
 
 logger = get_logger(__name__)

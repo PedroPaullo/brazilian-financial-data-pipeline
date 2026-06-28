@@ -12,13 +12,22 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import OPERATIONS_DB_FILE, PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
+from analytics.market_metrics import (
+    build_asset_performance_summary,
+    calculate_correlation_matrix,
+    calculate_max_drawdown,
+)
+from config import ALERTS_CSV_FILE, OPERATIONS_DB_FILE, PROCESSED_DB_FILE, VALIDATION_OUTPUT_FILES
+from monitoring import initialize_monitoring_db
 
 PAGE_OPTIONS = (
     "Resumo Executivo",
     "Status do Pipeline",
     "Qualidade dos Dados",
     "Benchmarks",
+    "Performance & Benchmarks",
+    "Risco & Correlacao",
+    "Alertas Operacionais",
     "Selic Diaria",
     "IPCA Mensal",
     "Cotacoes B3",
@@ -101,6 +110,7 @@ def load_pipeline_runs(operations_db_path: str) -> pd.DataFrame:
     database_file = Path(operations_db_path)
     if not database_file.exists():
         return pd.DataFrame()
+    initialize_monitoring_db(database_file)
 
     query = """
         SELECT
@@ -128,6 +138,7 @@ def load_operational_source_freshness(operations_db_path: str) -> pd.DataFrame:
     database_file = Path(operations_db_path)
     if not database_file.exists():
         return pd.DataFrame()
+    initialize_monitoring_db(database_file)
 
     query = """
         SELECT
@@ -137,12 +148,41 @@ def load_operational_source_freshness(operations_db_path: str) -> pd.DataFrame:
             expected_frequency,
             status,
             records_count,
+            max_lag_days,
+            lag_days,
+            freshness_status,
+            details,
             updated_at
         FROM source_freshness
         ORDER BY source_name, dataset_name
     """
 
     return read_sql_query(operations_db_path, query)
+
+
+@st.cache_data(show_spinner=True)
+def load_data_artifacts(operations_db_path: str) -> pd.DataFrame:
+    database_file = Path(operations_db_path)
+    if not database_file.exists():
+        return pd.DataFrame()
+    initialize_monitoring_db(database_file)
+
+    query = """
+        SELECT artifact_id, run_id, artifact_type, artifact_path, dataset_name,
+               created_at, row_count, status, details
+        FROM data_artifacts
+        ORDER BY artifact_id DESC
+        LIMIT 30
+    """
+    return read_sql_query(operations_db_path, query)
+
+
+@st.cache_data(show_spinner=True)
+def load_operational_alerts(alerts_csv_path: str) -> pd.DataFrame:
+    file_path = Path(alerts_csv_path)
+    if not file_path.exists():
+        return pd.DataFrame()
+    return pd.read_csv(file_path)
 
 
 @st.cache_data(show_spinner=True)
@@ -412,14 +452,19 @@ def build_operational_freshness_display(source_freshness_df: pd.DataFrame) -> pd
     display_df = source_freshness_df.copy()
     display_df["fonte"] = display_df["source_name"] + " - " + display_df["dataset_name"]
     display_df["ultima_data"] = pd.to_datetime(display_df["last_available_date"]).dt.strftime("%d/%m/%Y")
-    display_df["dias_desde_ultima_data"] = (
-        pd.Timestamp.today().normalize()
-        - pd.to_datetime(display_df["last_available_date"]).dt.normalize()
-    ).dt.days
+    if "lag_days" not in display_df.columns or display_df["lag_days"].isna().all():
+        display_df["lag_days"] = (
+            pd.Timestamp.today().normalize()
+            - pd.to_datetime(display_df["last_available_date"]).dt.normalize()
+        ).dt.days
+    if "freshness_status" in display_df.columns:
+        display_df["status"] = display_df["freshness_status"].fillna(display_df["status"])
     display_df = display_df.rename(
         columns={
             "expected_frequency": "frequencia_esperada",
             "records_count": "registros",
+            "max_lag_days": "sla_dias",
+            "lag_days": "lag_dias",
             "updated_at": "atualizado_em",
         }
     )
@@ -430,7 +475,8 @@ def build_operational_freshness_display(source_freshness_df: pd.DataFrame) -> pd
             "frequencia_esperada",
             "status",
             "registros",
-            "dias_desde_ultima_data",
+            "sla_dias",
+            "lag_dias",
             "atualizado_em",
         ]
     ]
@@ -601,12 +647,15 @@ def render_pipeline_status_page(
 
     pipeline_runs_df = load_pipeline_runs(str(OPERATIONS_DB_FILE))
     source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
+    artifacts_df = load_data_artifacts(str(OPERATIONS_DB_FILE))
 
     if source_freshness_df.empty:
         freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df, bcb_series_df)
+        lag_column = "dias_desde_ultima_data"
         st.info("Freshness calculado em tempo real. Execute o pipeline para popular o historico operacional.")
     else:
         freshness_df = build_operational_freshness_display(source_freshness_df)
+        lag_column = "lag_dias"
 
     status_counts = freshness_df["status"].value_counts().to_dict()
 
@@ -623,10 +672,10 @@ def render_pipeline_status_page(
     fig = px.bar(
         freshness_df,
         x="fonte",
-        y="dias_desde_ultima_data",
+        y=lag_column,
         color="status",
         title="Dias desde a ultima data disponivel",
-        labels={"fonte": "Fonte", "dias_desde_ultima_data": "Dias", "status": "Status"},
+        labels={"fonte": "Fonte", lag_column: "Dias", "status": "Status"},
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -658,6 +707,154 @@ def render_pipeline_status_page(
             labels={"run_id": "Run", "execution_time_seconds": "Segundos", "status": "Status"},
         )
         st.plotly_chart(fig_runs, use_container_width=True)
+
+    st.subheader("Artefatos recentes")
+    if artifacts_df.empty:
+        st.info("Nenhum artefato registrado em data_artifacts ainda.")
+    else:
+        st.dataframe(artifacts_df, use_container_width=True, hide_index=True)
+
+
+def render_performance_benchmarks_page(
+    stocks_df: pd.DataFrame,
+    ipca_df: pd.DataFrame,
+) -> None:
+    st.header("Performance & Benchmarks")
+
+    benchmark_df = stocks_df[stocks_df["ticker"] == "^BVSP"].copy()
+    assets_df = stocks_df[stocks_df["ticker"] != "^BVSP"].copy()
+    stop_if_empty(assets_df, "Nao ha ativos para calcular performance.")
+
+    summary_df = build_asset_performance_summary(assets_df, ipca_df=ipca_df, benchmark_df=benchmark_df)
+    stop_if_empty(summary_df, "Nao foi possivel calcular performance.")
+
+    display_df = summary_df.copy()
+    display_df["start_date"] = pd.to_datetime(display_df["start_date"]).dt.strftime("%d/%m/%Y")
+    display_df["end_date"] = pd.to_datetime(display_df["end_date"]).dt.strftime("%d/%m/%Y")
+    for column in [
+        "initial_price",
+        "final_price",
+        "nominal_return_pct",
+        "real_return_pct",
+        "annualized_volatility_pct",
+        "max_drawdown_pct",
+        "benchmark_return_pct",
+        "excess_return_pct",
+    ]:
+        display_df[column] = display_df[column].round(2)
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Ativos", len(summary_df))
+    col2.metric("Maior retorno nominal", format_pct(summary_df["nominal_return_pct"].max()))
+    col3.metric("Maior retorno real", format_pct(summary_df["real_return_pct"].max()))
+    col4.metric("Benchmark Ibovespa", format_pct(summary_df["benchmark_return_pct"].dropna().iloc[0] if summary_df["benchmark_return_pct"].notna().any() else None))
+
+    st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    fig_returns = px.bar(
+        summary_df,
+        x="ticker",
+        y=["nominal_return_pct", "real_return_pct", "excess_return_pct"],
+        barmode="group",
+        title="Retorno nominal, real e excesso contra Ibovespa",
+        labels={"value": "Retorno (%)", "ticker": "Ticker", "variable": "Metrica"},
+    )
+    st.plotly_chart(fig_returns, use_container_width=True)
+
+    indexed_df = assets_df.sort_values(["ticker", "reference_date"]).copy()
+    indexed_df["base_100"] = indexed_df.groupby("ticker")["adjusted_close_price"].transform(lambda s: s / s.iloc[0] * 100)
+    fig_base = px.line(
+        indexed_df,
+        x="reference_date",
+        y="base_100",
+        color="ticker",
+        title="Preco ajustado em base 100",
+        labels={"reference_date": "Data", "base_100": "Base 100", "ticker": "Ticker"},
+    )
+    fig_base.update_layout(hovermode="x unified")
+    st.plotly_chart(fig_base, use_container_width=True)
+
+
+def render_risk_correlation_page(stocks_df: pd.DataFrame) -> None:
+    st.header("Risco & Correlacao")
+
+    assets_df = stocks_df[stocks_df["ticker"] != "^BVSP"].copy()
+    stop_if_empty(assets_df, "Nao ha ativos para calcular risco.")
+
+    risk_rows = []
+    drawdown_frames = []
+    for ticker, ticker_df in assets_df.groupby("ticker"):
+        ticker_df = ticker_df.sort_values("reference_date").copy()
+        running_max = ticker_df["adjusted_close_price"].cummax()
+        ticker_df["drawdown_pct"] = (ticker_df["adjusted_close_price"] / running_max - 1) * 100
+        drawdown_frames.append(ticker_df[["reference_date", "ticker", "drawdown_pct"]])
+        risk_rows.append(
+            {
+                "ticker": ticker,
+                "max_drawdown_pct": calculate_max_drawdown(ticker_df["adjusted_close_price"]),
+                "daily_volatility_pct": ticker_df["adjusted_close_price"].pct_change(fill_method=None).std() * 100,
+            }
+        )
+
+    risk_df = pd.DataFrame(risk_rows)
+    risk_df["max_drawdown_pct"] = risk_df["max_drawdown_pct"].round(2)
+    risk_df["daily_volatility_pct"] = risk_df["daily_volatility_pct"].round(2)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Ativos analisados", len(risk_df))
+    col2.metric("Maior volatilidade diaria", format_pct(risk_df["daily_volatility_pct"].max()))
+    col3.metric("Pior drawdown", format_pct(risk_df["max_drawdown_pct"].min()))
+
+    st.dataframe(risk_df.sort_values("daily_volatility_pct", ascending=False), use_container_width=True, hide_index=True)
+
+    price_matrix = assets_df.pivot_table(index="reference_date", columns="ticker", values="adjusted_close_price", aggfunc="last").sort_index()
+    corr_df = calculate_correlation_matrix(price_matrix)
+    if not corr_df.empty:
+        fig_corr = px.imshow(
+            corr_df,
+            text_auto=".2f",
+            title="Matriz de correlacao dos retornos diarios",
+            color_continuous_scale="RdBu",
+            zmin=-1,
+            zmax=1,
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+
+    drawdown_df = pd.concat(drawdown_frames, ignore_index=True)
+    fig_drawdown = px.line(
+        drawdown_df,
+        x="reference_date",
+        y="drawdown_pct",
+        color="ticker",
+        title="Drawdown por ativo",
+        labels={"reference_date": "Data", "drawdown_pct": "Drawdown (%)", "ticker": "Ticker"},
+    )
+    fig_drawdown.update_layout(hovermode="x unified", yaxis_ticksuffix="%")
+    st.plotly_chart(fig_drawdown, use_container_width=True)
+
+
+def render_operational_alerts_page() -> None:
+    st.header("Alertas Operacionais")
+
+    alerts_df = load_operational_alerts(str(ALERTS_CSV_FILE))
+    if alerts_df.empty:
+        st.info("Nenhum arquivo de alertas encontrado. Execute python src\\alerts.py.")
+        return
+
+    counts = alerts_df["severity"].value_counts().to_dict()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Alertas", len(alerts_df))
+    col2.metric("INFO", counts.get("INFO", 0))
+    col3.metric("WARNING", counts.get("WARNING", 0))
+    col4.metric("CRITICAL", counts.get("CRITICAL", 0))
+
+    selected_severities = st.multiselect(
+        "Severidade",
+        options=sorted(alerts_df["severity"].unique().tolist()),
+        default=sorted(alerts_df["severity"].unique().tolist()),
+    )
+    filtered_df = alerts_df[alerts_df["severity"].isin(selected_severities)].copy()
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
 
 
 def render_data_quality_page() -> None:
@@ -939,6 +1136,12 @@ def main() -> None:
         render_data_quality_page()
     elif page == "Benchmarks":
         render_benchmarks_page(bcb_series_df, stocks_df)
+    elif page == "Performance & Benchmarks":
+        render_performance_benchmarks_page(stocks_df, ipca_df)
+    elif page == "Risco & Correlacao":
+        render_risk_correlation_page(stocks_df)
+    elif page == "Alertas Operacionais":
+        render_operational_alerts_page()
     elif page == "Selic Diaria":
         render_selic_page(selic_df)
     elif page == "IPCA Mensal":

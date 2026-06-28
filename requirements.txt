@@ -5,3 +5,4 @@ apscheduler>=3.10.4
 streamlit>=1.49.0
 plotly>=6.3.0
 openpyxl>=3.1.0
+holidays>=0.60.0

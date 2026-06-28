@@ -18,6 +18,7 @@ def main():
         "IPCA Mensal",
         "Cotacoes B3",
         "Benchmarks",
+        "Performance",
     }
 
     assert expected_sheets.issubset(set(workbook.sheetnames))

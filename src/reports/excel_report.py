@@ -10,6 +10,8 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
+from analytics.market_metrics import build_asset_performance_summary
+
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 TITLE_FILL = PatternFill("solid", fgColor="D9EAF7")
@@ -270,6 +272,65 @@ def create_benchmarks_sheet(workbook, data):
 
     _format_worksheet_columns(ws, 28)
 
+
+def create_performance_sheet(workbook, data):
+    ws = workbook.create_sheet("Performance")
+    ws["A1"] = "Performance e Risco"
+    ws["A1"].fill = TITLE_FILL
+    ws["A1"].font = TITLE_FONT
+
+    stocks_df = data["stocks"].copy()
+    assets_df = stocks_df[stocks_df["ticker"] != "^BVSP"].copy()
+    benchmark_df = stocks_df[stocks_df["ticker"] == "^BVSP"].copy()
+    ipca_df = data["ipca"].copy()
+    ipca_df = ipca_df.rename(columns={"ipca_monthly_value": "ipca_monthly_value"})
+
+    performance_df = build_asset_performance_summary(
+        assets_df,
+        ipca_df=ipca_df,
+        benchmark_df=benchmark_df,
+    )
+    if performance_df.empty:
+        ws["A3"] = "Sem dados suficientes para calcular performance."
+        return
+
+    output_df = performance_df.copy()
+    for column in [
+        "nominal_return_pct",
+        "real_return_pct",
+        "annualized_volatility_pct",
+        "max_drawdown_pct",
+        "benchmark_return_pct",
+        "excess_return_pct",
+    ]:
+        output_df[column] = output_df[column] / 100
+
+    last_row, _ = _write_dataframe(ws, output_df, 3, 1, "tbl_asset_performance")
+    for r in range(4, last_row + 1):
+        ws[f"B{r}"].number_format = "dd/mm/yyyy"
+        ws[f"C{r}"].number_format = "dd/mm/yyyy"
+        ws[f"D{r}"].number_format = "R$ #,##0.00"
+        ws[f"E{r}"].number_format = "R$ #,##0.00"
+        for col in ["F", "G", "H", "I", "J", "K"]:
+            ws[f"{col}{r}"].number_format = "0.00%"
+
+    return_chart = BarChart()
+    return_chart.title = "Retorno nominal por ativo"
+    return_chart.height = 10
+    return_chart.width = 18
+    return_chart.add_data(Reference(ws, min_col=6, min_row=3, max_row=last_row), titles_from_data=True)
+    return_chart.set_categories(Reference(ws, min_col=1, min_row=4, max_row=last_row))
+    ws.add_chart(return_chart, "M3")
+
+    drawdown_chart = BarChart()
+    drawdown_chart.title = "Drawdown maximo por ativo"
+    drawdown_chart.height = 10
+    drawdown_chart.width = 18
+    drawdown_chart.add_data(Reference(ws, min_col=9, min_row=3, max_row=last_row), titles_from_data=True)
+    drawdown_chart.set_categories(Reference(ws, min_col=1, min_row=4, max_row=last_row))
+    ws.add_chart(drawdown_chart, "M20")
+    _format_worksheet_columns(ws, 24)
+
 def create_financial_report(database_file, output_file):
     output_file.parent.mkdir(parents=True, exist_ok=True)
     data = load_report_data(database_file)
@@ -280,6 +341,7 @@ def create_financial_report(database_file, output_file):
     create_ipca_sheet(wb, data["ipca"])
     create_stocks_sheet(wb, data["stocks"])
     create_benchmarks_sheet(wb, data)
+    create_performance_sheet(wb, data)
     wb.save(output_file)
     return {
         "output_file": str(output_file),

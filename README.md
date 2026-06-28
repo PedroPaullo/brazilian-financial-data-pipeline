@@ -12,7 +12,7 @@ Dados financeiros públicos brasileiros (Selic, IPCA, cotações B3) estão disp
 
 ## Solução
 
-Pipeline modular em Python que automatiza todo o ciclo: coleta → validação → armazenamento → observabilidade → dashboard → relatório.
+Pipeline modular em Python que automatiza todo o ciclo: coleta → validação → armazenamento → observabilidade → alertas → analytics → dashboard → relatório.
 
 ## Impacto
 
@@ -20,10 +20,11 @@ Pipeline modular em Python que automatiza todo o ciclo: coleta → validação �
 - 1004 cotações B3/Yahoo Finance coletadas: PETR4, VALE3, ITUB4 e Ibovespa
 - 45 checagens de qualidade executadas com status PASS/WARN/FAIL
 - Dashboard operacional com freshness, qualidade de dados, benchmarks e histórico de execução
+- Orquestrador único, alertas operacionais, lineage de artefatos e analytics de mercado
 
 ## Arquitetura
 
-coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → observabilidade → dashboard Streamlit → relatório Excel
+coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite normalizado) → observabilidade/SLA → alertas → analytics → dashboard Streamlit → relatório Excel
 
 ## Módulos
 
@@ -35,6 +36,9 @@ coleta (APIs públicas) → validação (SQL + Python) → armazenamento (SQLite
 | 4 — Relatório | Excel automático com abas executivas, séries e benchmarks | src/generate_report.py |
 | 5 — Observabilidade | Histórico de execuções e freshness por fonte | src/monitoring.py |
 | 6 — Dashboard | Streamlit com resumo, status, qualidade, benchmarks e séries | src/dashboard.py |
+| 7 — Orquestração | Execução mestre com módulos selecionáveis | src/run_pipeline.py |
+| 8 — Alertas | Alertas operacionais em JSON/CSV | src/alerts.py |
+| 9 — Analytics | Retorno, risco, drawdown, correlação e benchmark | src/analytics/market_metrics.py |
 
 ## Fontes de dados
 
@@ -60,6 +64,12 @@ $env:PYTHONNOUSERSITE="1"
 ```powershell
 pip install -r requirements.txt
 
+python src/run_pipeline.py --start 2024-01-01 --end 2024-12-31
+```
+
+Também é possível rodar por módulo:
+
+```powershell
 python src/collect_data.py --start 2024-01-01 --end 2024-12-31
 python src/validate_data.py
 python src/load_processed_data.py
@@ -76,7 +86,7 @@ python -m streamlit run src\dashboard.py
 
 ## Agendamento
 
-O scheduler executa coleta, validação, carga e relatório automaticamente em dias úteis às 07:00.
+O scheduler executa coleta, validação, carga, relatório e alertas automaticamente em dias úteis às 07:00.
 
 ```powershell
 python src/scheduler.py
@@ -94,8 +104,25 @@ As execuções dos módulos são registradas em `data/operations/pipeline_operat
 
 - `pipeline_runs`: histórico recente de execuções, status, duração e contagens.
 - `source_freshness`: última data disponível por fonte, frequência esperada e status.
+- `data_artifacts`: artefatos gerados pelo pipeline e status local.
 
 O dashboard usa essas tabelas na página `Status do Pipeline`.
+
+## Alertas e Analytics
+
+```powershell
+python src/alerts.py
+```
+
+Os alertas são salvos em `reports/operations/alerts.json` e `reports/operations/alerts.csv`.
+
+O dashboard inclui páginas de performance, risco, correlação e alertas operacionais.
+
+## Documentação
+
+- `docs/ARCHITECTURE.md`
+- `docs/OPERATIONS.md`
+- `docs/DATA_QUALITY.md`
 
 ## Resultados
 
