@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,11 +23,12 @@ from config import (
     VALIDATION_DB_FILE,
     VALIDATION_OUTPUT_FILES,
 )
+from database.postgres_loader import DEFAULT_POSTGRES_URL, load_to_postgres
 from logger import get_logger
 from monitoring import finish_pipeline_run, record_data_artifact, start_pipeline_run
 from metadata.audit import register_etl_run
 from metadata.manifest import create_run_id, create_run_manifest, now_text, write_run_manifest
-from storage.database import create_engine_or_connection, validate_database_config
+from storage.database import validate_database_config
 from validation.reconciliation import reconcile
 
 SRC_DIR = Path(__file__).resolve().parent
@@ -149,16 +151,20 @@ def _build_manifest(args, run_id: str, status: str = "RUNNING", errors: list[str
     )
 
 
+def _prepare_database_backend(args) -> None:
+    if args.database_backend == "postgres":
+        args.database_url = args.database_url or os.getenv("DATABASE_URL") or DEFAULT_POSTGRES_URL
+    validate_database_config(args.database_backend, args.database_url)
+    logger.info("backend: %s", args.database_backend)
+
+
 def run_pipeline(args) -> int:
     trace_run_id = args.run_id or create_run_id("pipeline")
     manifest_path = None
     run_id = None
     archive_runs = bool(getattr(args, "archive_runs", False))
     retention_days = getattr(args, "retention_days", None)
-    if args.database_backend == "postgres":
-        create_engine_or_connection(args.database_backend, args.database_url)
-    else:
-        validate_database_config(args.database_backend, args.database_url)
+    _prepare_database_backend(args)
 
     if args.reconcile_only:
         manifest = _build_manifest(args, trace_run_id, status="RECONCILE_ONLY")
@@ -197,6 +203,12 @@ def run_pipeline(args) -> int:
 
         if "alerts" not in steps:
             generate_operational_alerts()
+
+        if args.database_backend == "postgres":
+            postgres_counts = load_to_postgres(args.database_url)
+            logger.info("backend: postgres")
+            for table_name, row_count in postgres_counts.items():
+                logger.info("PostgreSQL %s: %s", table_name, row_count)
 
         _record_standard_artifacts(run_id)
         finish_pipeline_run(run_id, "SUCCESS", errors_count=0)

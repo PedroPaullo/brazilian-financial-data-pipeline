@@ -7,6 +7,7 @@ streamlit>=1.49.0
 plotly>=6.3.0
 openpyxl>=3.1.0
 holidays>=0.60.0
+psycopg2-binary>=2.9.9
 pyarrow
 numexpr
 bottleneck
