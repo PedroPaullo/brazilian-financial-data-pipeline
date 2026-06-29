@@ -27,6 +27,7 @@ from config import (
 from metadata.audit import ensure_audit_schema, register_dataset_version, register_reconciliation_checks, register_source_file
 from metadata.dataset_versioning import dataframe_dataset_version, file_dataset_version
 from metadata.manifest import get_git_commit, now_text
+from logger import get_logger
 from source_availability import (
     EXPECTED_EMPTY_STATUSES,
     STATUS_NOT_YET_AVAILABLE,
@@ -38,6 +39,7 @@ from source_availability import (
 REPORT_DIR = PROJECT_ROOT / "reports" / "reconciliation"
 REPORT_DAILY_DIR = REPORT_DIR / "daily"
 REPORT_RUNS_DIR = REPORT_DIR / "runs"
+logger = get_logger(__name__)
 
 
 def _check(run_id: str, check_name: str, severity: str, status: str, expected_value="", actual_value="", difference_value="", details: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -438,7 +440,10 @@ def main() -> None:
         archive_runs=args.archive_runs,
         retention_days=args.retention_days,
     )
-    print(json.dumps({"run_id": result["run_id"], "overall_status": result["overall_status"]}, ensure_ascii=False))
+    logger.info(
+        "Reconciliacao concluida: %s",
+        json.dumps({"run_id": result["run_id"], "overall_status": result["overall_status"]}, ensure_ascii=False),
+    )
 
 
 if __name__ == "__main__":

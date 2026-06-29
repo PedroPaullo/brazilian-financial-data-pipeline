@@ -26,6 +26,7 @@ reports/reconciliation/daily/
 reports/reconciliation/runs/*
 reports/validation/*.csv
 reports/validation/*.json
-*.log
+logs/*.log
+!logs/.gitkeep
 .vscode/
 .idea/
