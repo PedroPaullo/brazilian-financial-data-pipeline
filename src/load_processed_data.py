@@ -6,6 +6,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import OUTPUT_FILES, PROCESSED_DB_FILE
+from intelligence.loader import load_intelligence_views
 from storage.load_processed_sqlite import load_processed_database
 from logger import get_logger
 from monitoring import finish_pipeline_run, refresh_source_freshness_from_processed_db, start_pipeline_run
@@ -48,6 +49,7 @@ def main():
             cvm_registry_file=Path(args.cvm_registry_file),
         )
         refresh_source_freshness_from_processed_db(Path(args.database_file))
+        intelligence_counts = load_intelligence_views(Path(args.database_file))
 
         records_input = table_counts["input_bcb_rows_loaded"] + table_counts["input_stock_rows_loaded"] + table_counts["input_cvm_fund_rows_loaded"]
         records_output = table_counts["fact_bcb_series_values"] + table_counts["fact_b3_stock_prices"] + table_counts["fact_cvm_fund_daily_report"]
@@ -69,6 +71,8 @@ def main():
         logger.info("fact_bcb_series     : %s", table_counts["fact_bcb_series_values"])
         logger.info("fact_b3_stock_prices: %s", table_counts["fact_b3_stock_prices"])
         logger.info("fact_cvm_funds      : %s", table_counts["fact_cvm_fund_daily_report"])
+        for view_name, row_count in intelligence_counts.items():
+            logger.info("%s: %s", view_name, row_count)
         logger.info("=" * 60)
         logger.info("Carga final concluida com sucesso.")
     except Exception as exc:

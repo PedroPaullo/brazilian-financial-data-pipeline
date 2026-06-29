@@ -12,6 +12,7 @@ DATABASE_FILE = PROJECT_ROOT / "data" / "processed" / "financial_data.db"
 
 PAGES = (
     "Resumo Executivo",
+    "Inteligência Financeira",
     "Selic Diaria",
     "IPCA Mensal",
     "Cotacoes B3",
@@ -30,8 +31,12 @@ def _read_sql(query: str, parse_dates: list[str] | None = None) -> pd.DataFrame:
         st.warning(f"Banco processado nao encontrado: {DATABASE_FILE}")
         return pd.DataFrame()
 
-    with sqlite3.connect(DATABASE_FILE) as conn:
-        return pd.read_sql_query(query, conn, parse_dates=parse_dates)
+    try:
+        with sqlite3.connect(DATABASE_FILE) as conn:
+            return pd.read_sql_query(query, conn, parse_dates=parse_dates)
+    except sqlite3.Error as exc:
+        st.warning(f"Nao foi possivel carregar dados do banco: {exc}")
+        return pd.DataFrame()
 
 
 @st.cache_data(show_spinner=False)
@@ -61,14 +66,74 @@ def load_b3_prices() -> pd.DataFrame:
 
 @st.cache_data(show_spinner=False)
 def load_latest_run() -> pd.DataFrame:
+    if not DATABASE_FILE.exists():
+        return pd.DataFrame()
+
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        objects = {
+            row[0]
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type IN ('table', 'view')"
+            ).fetchall()
+        }
+        if "vw_etl_runs_latest" not in objects:
+            return pd.DataFrame()
+        return pd.read_sql_query(
+            """
+            SELECT run_id, started_at, finished_at, status, command, git_commit
+            FROM vw_etl_runs_latest
+            ORDER BY started_at DESC
+            LIMIT 1
+            """,
+            conn,
+            parse_dates=["started_at", "finished_at"],
+        )
+
+
+@st.cache_data(show_spinner=False)
+def load_market_latest_indicators() -> pd.DataFrame:
     return _read_sql(
         """
-        SELECT run_id, started_at, finished_at, status, command, git_commit
-        FROM vw_etl_runs_latest
-        ORDER BY started_at DESC
-        LIMIT 1
+        SELECT series_name, latest_date, latest_value, previous_value, change_pct
+        FROM vw_market_latest_indicators
+        ORDER BY series_name
         """,
-        parse_dates=["started_at", "finished_at"],
+        parse_dates=["latest_date"],
+    )
+
+
+@st.cache_data(show_spinner=False)
+def load_asset_returns_ranking() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT ticker, return_30d_pct, return_90d_pct, return_full_pct, period_start, period_end
+        FROM vw_asset_returns_ranking
+        ORDER BY return_full_pct DESC
+        """,
+        parse_dates=["period_start", "period_end"],
+    )
+
+
+@st.cache_data(show_spinner=False)
+def load_data_freshness_status() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT source_name, series_name, last_date, days_since_update, freshness_status
+        FROM vw_data_freshness_status
+        ORDER BY source_name, series_name
+        """,
+        parse_dates=["last_date"],
+    )
+
+
+@st.cache_data(show_spinner=False)
+def load_macro_indicators_summary() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT reference_month, selic_avg, ipca_value, cdi_avg, usd_brl_avg
+        FROM vw_macro_indicators_summary
+        ORDER BY reference_month
+        """
     )
 
 
@@ -211,6 +276,87 @@ def render_executive_summary(bcb_df: pd.DataFrame, stocks_df: pd.DataFrame, late
     st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
 
+def freshness_style(value: str) -> str:
+    colors = {
+        "FRESH": "background-color: #dcfce7; color: #166534",
+        "RECENT": "background-color: #fef9c3; color: #854d0e",
+        "STALE": "background-color: #fee2e2; color: #991b1b",
+    }
+    return colors.get(str(value), "")
+
+
+def render_financial_intelligence_page() -> None:
+    st.title("Inteligência Financeira")
+
+    indicators_df = load_market_latest_indicators()
+    returns_df = load_asset_returns_ranking()
+    freshness_df = load_data_freshness_status()
+    macro_df = load_macro_indicators_summary()
+
+    st.subheader("Indicadores de mercado mais recentes")
+    if indicators_df.empty:
+        st.warning("View vw_market_latest_indicators sem dados.")
+    else:
+        display_df = indicators_df.copy()
+        display_df["latest_date"] = display_df["latest_date"].dt.strftime("%d/%m/%Y")
+        for column in ["latest_value", "previous_value", "change_pct"]:
+            display_df[column] = display_df[column].round(6)
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    st.subheader("Ranking de retornos por ativo")
+    if returns_df.empty:
+        st.warning("View vw_asset_returns_ranking sem dados.")
+    else:
+        chart_df = returns_df.melt(
+            id_vars=["ticker"],
+            value_vars=["return_30d_pct", "return_90d_pct", "return_full_pct"],
+            var_name="periodo",
+            value_name="retorno_pct",
+        )
+        fig = px.bar(
+            chart_df,
+            x="ticker",
+            y="retorno_pct",
+            color="periodo",
+            barmode="group",
+            labels={"ticker": "Ticker", "retorno_pct": "Retorno (%)", "periodo": "Periodo"},
+        )
+        fig.update_layout(yaxis_ticksuffix="%", margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+    st.subheader("Freshness das fontes")
+    if freshness_df.empty:
+        st.warning("View vw_data_freshness_status sem dados.")
+    else:
+        freshness_display = freshness_df.copy()
+        freshness_display["last_date"] = freshness_display["last_date"].dt.strftime("%d/%m/%Y")
+        st.dataframe(
+            freshness_display.style.map(freshness_style, subset=["freshness_status"]),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    st.subheader("Resumo macro mensal")
+    if macro_df.empty:
+        st.warning("View vw_macro_indicators_summary sem dados.")
+    else:
+        macro_chart_df = macro_df.melt(
+            id_vars=["reference_month"],
+            value_vars=["selic_avg", "ipca_value", "cdi_avg", "usd_brl_avg"],
+            var_name="indicador",
+            value_name="valor",
+        )
+        fig = px.line(
+            macro_chart_df,
+            x="reference_month",
+            y="valor",
+            color="indicador",
+            labels={"reference_month": "Mes", "valor": "Valor", "indicador": "Indicador"},
+        )
+        fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(fig, use_container_width=True)
+
+
 def render_selic_page(bcb_df: pd.DataFrame) -> None:
     st.title("Selic Diaria")
     selic_df = bcb_df[bcb_df["series_name"] == "selic_daily"].sort_values("reference_date")
@@ -321,6 +467,8 @@ def main() -> None:
 
     if page == "Resumo Executivo":
         render_executive_summary(bcb_df, stocks_df, latest_run_df)
+    elif page == "Inteligência Financeira":
+        render_financial_intelligence_page()
     elif page == "Selic Diaria":
         render_selic_page(bcb_df)
     elif page == "IPCA Mensal":
