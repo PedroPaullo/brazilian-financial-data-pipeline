@@ -12,6 +12,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (
+    COLLECTION_STATUS_JSON_FILE,
     COVERAGE_MISSING_DATES_FILE,
     COVERAGE_REPORT_FILE,
     COVERAGE_SUMMARY_FILE,
@@ -21,6 +22,7 @@ from financial_calendar import expected_dates
 from logger import get_logger
 from monitoring import record_data_artifact
 from reference_data.b3_calendar import calendar_source, get_b3_expected_trading_dates
+from source_availability import expected_periods_for_series
 
 logger = get_logger(__name__)
 
@@ -28,6 +30,8 @@ STATUS_OK = "OK"
 STATUS_WARNING = "WARNING"
 STATUS_CRITICAL = "CRITICAL"
 STATUS_UNKNOWN = "UNKNOWN"
+DEFAULT_START_DATE = "2024-01-01"
+DEFAULT_END_DATE = "2024-12-31"
 
 
 def _now() -> str:
@@ -38,6 +42,79 @@ def _to_date_string(value) -> str:
     return pd.to_datetime(value).strftime("%Y-%m-%d")
 
 
+def _default_coverage_range(start_date, end_date) -> bool:
+    return (
+        _to_date_string(start_date) == DEFAULT_START_DATE
+        and _to_date_string(end_date) == DEFAULT_END_DATE
+    )
+
+
+def _collection_status_range(status_file: Path = COLLECTION_STATUS_JSON_FILE) -> tuple[str, str] | None:
+    if not status_file.exists():
+        return None
+
+    try:
+        payload = json.loads(status_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Nao foi possivel ler range do status de coleta: %s", exc)
+        return None
+
+    start_date = payload.get("start_date")
+    end_date = payload.get("end_date")
+    if start_date and end_date:
+        return _to_date_string(start_date), _to_date_string(end_date)
+
+    requested_ranges: list[tuple[str, str]] = []
+    for item in payload.get("bcb_series", []):
+        item_start = item.get("requested_start_date")
+        item_end = item.get("requested_end_date")
+        if item_start and item_end:
+            requested_ranges.append((_to_date_string(item_start), _to_date_string(item_end)))
+
+    if requested_ranges:
+        return min(start for start, _ in requested_ranges), max(end for _, end in requested_ranges)
+
+    return None
+
+
+def _database_date_range(*frames: pd.DataFrame) -> tuple[str, str] | None:
+    dates: list[pd.Timestamp] = []
+    for frame in frames:
+        if frame.empty or "reference_date" not in frame.columns:
+            continue
+        frame_dates = pd.to_datetime(frame["reference_date"], errors="coerce").dropna()
+        if not frame_dates.empty:
+            dates.extend([frame_dates.min(), frame_dates.max()])
+
+    if not dates:
+        return None
+
+    return _to_date_string(min(dates)), _to_date_string(max(dates))
+
+
+def resolve_coverage_range(
+    bcb_series_df: pd.DataFrame,
+    stocks_df: pd.DataFrame,
+    start_date,
+    end_date,
+    collection_status_file: Path = COLLECTION_STATUS_JSON_FILE,
+) -> tuple[str, str]:
+    if not _default_coverage_range(start_date, end_date):
+        return _to_date_string(start_date), _to_date_string(end_date)
+
+    collection_range = _collection_status_range(collection_status_file)
+    if collection_range is not None:
+        logger.info("Range de cobertura ajustado pela ultima coleta: %s a %s", *collection_range)
+        return collection_range
+
+    database_range = _database_date_range(bcb_series_df, stocks_df)
+    if database_range is not None:
+        logger.info("Range de cobertura ajustado pelo banco processado: %s a %s", *database_range)
+        return database_range
+
+    return DEFAULT_START_DATE, DEFAULT_END_DATE
+
+
 def _source_frequency(source_name: str, dataset_name: str, frequency: str | None = None) -> str:
     if frequency == "monthly" or dataset_name == "ipca_monthly":
         return "monthly"
@@ -46,14 +123,31 @@ def _source_frequency(source_name: str, dataset_name: str, frequency: str | None
     return "daily_business"
 
 
-def classify_coverage_status(coverage_pct: float | None, missing_observations: int) -> str:
+def classify_coverage_status(
+    coverage_pct: float | None,
+    missing_observations: int,
+    expected_observations: int | None = None,
+) -> str:
     if coverage_pct is None:
         return STATUS_UNKNOWN
-    if coverage_pct >= 98.0 and missing_observations <= 5:
+
+    allowed_missing = 5
+    if expected_observations is not None:
+        allowed_missing = max(5, round(expected_observations * 0.02))
+
+    if coverage_pct >= 98.0 and missing_observations <= allowed_missing:
         return STATUS_OK
     if coverage_pct >= 90.0:
         return STATUS_WARNING
     return STATUS_CRITICAL
+
+
+def _expected_dates_for_dataset(dataset_name: str, start_date, end_date, frequency: str) -> list[str] | None:
+    if frequency != "monthly":
+        return None
+
+    expected_periods = expected_periods_for_series(dataset_name, start_date, end_date)
+    return [f"{period}-01" for period in expected_periods]
 
 
 def calculate_coverage(
@@ -88,7 +182,7 @@ def calculate_coverage(
         "last_expected_date": max(expected_set) if expected_set else None,
         "first_available_date": min(actual_set) if actual_set else None,
         "last_available_date": max(actual_set) if actual_set else None,
-        "status": classify_coverage_status(coverage_pct, len(missing_dates)),
+        "status": classify_coverage_status(coverage_pct, len(missing_dates), expected_count),
     }
 
 
@@ -109,7 +203,13 @@ def build_coverage_report(
                 str(series_name),
                 str(series_df["frequency"].iloc[0]) if "frequency" in series_df.columns else None,
             )
-            coverage = calculate_coverage(series_df["reference_date"], start_date, end_date, frequency)
+            coverage = calculate_coverage(
+                series_df["reference_date"],
+                start_date,
+                end_date,
+                frequency,
+                expected_override=_expected_dates_for_dataset(str(series_name), start_date, end_date, frequency),
+            )
             rows.append(
                 {
                     "source_name": "BCB_SGS",
@@ -294,13 +394,14 @@ def generate_coverage_artifacts(
     report_file: Path = COVERAGE_REPORT_FILE,
     summary_file: Path = COVERAGE_SUMMARY_FILE,
     missing_dates_file: Path = COVERAGE_MISSING_DATES_FILE,
-    start_date: str = "2024-01-01",
-    end_date: str = "2024-12-31",
+    start_date: str = DEFAULT_START_DATE,
+    end_date: str = DEFAULT_END_DATE,
     run_id: int | None = None,
 ) -> dict[str, Any]:
     bcb_series_df, stocks_df = load_processed_frames(database_file)
-    report_df, missing_df = build_coverage_report(bcb_series_df, stocks_df, start_date, end_date)
-    summary = _build_summary(report_df, start_date, end_date)
+    resolved_start, resolved_end = resolve_coverage_range(bcb_series_df, stocks_df, start_date, end_date)
+    report_df, missing_df = build_coverage_report(bcb_series_df, stocks_df, resolved_start, resolved_end)
+    summary = _build_summary(report_df, resolved_start, resolved_end)
 
     report_file.parent.mkdir(parents=True, exist_ok=True)
     report_df.to_csv(report_file, index=False, encoding="utf-8")
@@ -320,8 +421,8 @@ def parse_args():
     parser.add_argument("--report-file", default=str(COVERAGE_REPORT_FILE))
     parser.add_argument("--summary-file", default=str(COVERAGE_SUMMARY_FILE))
     parser.add_argument("--missing-dates-file", default=str(COVERAGE_MISSING_DATES_FILE))
-    parser.add_argument("--start", default="2024-01-01")
-    parser.add_argument("--end", default="2024-12-31")
+    parser.add_argument("--start", "--start-date", dest="start", default=DEFAULT_START_DATE)
+    parser.add_argument("--end", "--end-date", dest="end", default=DEFAULT_END_DATE)
     return parser.parse_args()
 
 

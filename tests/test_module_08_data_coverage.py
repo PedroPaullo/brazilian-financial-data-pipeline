@@ -4,6 +4,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import pandas as pd
 
@@ -15,6 +16,7 @@ from coverage_report import (
     build_coverage_report,
     calculate_coverage,
     classify_coverage_status,
+    resolve_coverage_range,
 )
 
 COVERAGE_REPORT_FILE = PROJECT_ROOT / "reports" / "coverage" / "data_coverage_report.csv"
@@ -40,6 +42,7 @@ def main():
     assert synthetic_coverage["missing_observations"] == 1
     assert synthetic_coverage["coverage_pct"] == 75.0
     assert classify_coverage_status(99.0, 0) == "OK"
+    assert classify_coverage_status(98.42, 10, 634) == "OK"
     assert classify_coverage_status(95.0, 3) == "WARNING"
     assert classify_coverage_status(80.0, 10) == "CRITICAL"
 
@@ -59,6 +62,32 @@ def main():
     report_df, missing_df = build_coverage_report(bcb_df, stocks_df, "2024-01-01", "2024-01-05")
     assert {"selic_daily", "ipca_monthly", "PETR4.SA"}.issubset(set(report_df["dataset_name"]))
     assert "missing_date" in missing_df.columns
+
+    with TemporaryDirectory() as temp_dir:
+        status_file = Path(temp_dir) / "latest_collection_status.json"
+        status_file.write_text(
+            json.dumps({"start_date": "2024-01-01", "end_date": "2026-06-28"}),
+            encoding="utf-8",
+        )
+        dynamic_start, dynamic_end = resolve_coverage_range(
+            bcb_df,
+            stocks_df,
+            "2024-01-01",
+            "2024-12-31",
+            collection_status_file=status_file,
+        )
+        assert dynamic_start == "2024-01-01"
+        assert dynamic_end == "2026-06-28"
+
+    fallback_start, fallback_end = resolve_coverage_range(
+        bcb_df,
+        stocks_df,
+        "2024-01-01",
+        "2024-12-31",
+        collection_status_file=PROJECT_ROOT / "reports" / "collection" / "missing_status.json",
+    )
+    assert fallback_start == "2024-01-01"
+    assert fallback_end == "2024-01-03"
 
     result = _run([sys.executable, str(SRC_DIR / "coverage_report.py"), "--start", "2024-01-01", "--end", "2024-12-31"])
     assert result.returncode == 0, result.stderr
