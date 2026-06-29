@@ -1,58 +1,21 @@
 from __future__ import annotations
 
-import json
 import sqlite3
-import sys
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATABASE_FILE = PROJECT_ROOT / "data" / "processed" / "financial_data.db"
 
-from analytics.market_metrics import (
-    build_asset_performance_summary,
-    calculate_correlation_matrix,
-    calculate_max_drawdown,
-)
-from config import (
-    ALERTS_CSV_FILE,
-    COVERAGE_MISSING_DATES_FILE,
-    COVERAGE_REPORT_FILE,
-    OPERATIONS_DB_FILE,
-    PROCESSED_DB_FILE,
-    VALIDATION_OUTPUT_FILES,
-)
-from coverage_report import build_coverage_report
-from monitoring import initialize_monitoring_db
-
-PAGE_OPTIONS = (
+PAGES = (
     "Resumo Executivo",
-    "Status do Pipeline",
-    "Rastreabilidade",
-    "Reconciliacao",
-    "Qualidade dos Dados",
-    "Cobertura Historica",
-    "Fundos CVM",
-    "Benchmarks",
-    "Performance & Benchmarks",
-    "Risco & Correlacao",
-    "Alertas Operacionais",
     "Selic Diaria",
     "IPCA Mensal",
     "Cotacoes B3",
 )
-
-STOCK_RETURN_COLUMNS = [
-    "ticker",
-    "data_inicial",
-    "data_final",
-    "preco_ajustado_inicial",
-    "preco_ajustado_final",
-    "retorno_pct",
-]
 
 
 st.set_page_config(
@@ -62,1387 +25,308 @@ st.set_page_config(
 )
 
 
-def validate_database_exists(database_file: Path) -> None:
-    if database_file.exists():
-        return
+def _read_sql(query: str, parse_dates: list[str] | None = None) -> pd.DataFrame:
+    if not DATABASE_FILE.exists():
+        st.warning(f"Banco processado nao encontrado: {DATABASE_FILE}")
+        return pd.DataFrame()
 
-    st.error(
-        "Banco SQLite final nao encontrado.\n\n"
-        f"Caminho esperado: `{database_file}`\n\n"
-        "Rode primeiro: `python src\\load_processed_data.py`"
-    )
-    st.stop()
-
-
-def stop_if_missing_file(file_path: Path, message: str) -> None:
-    if file_path.exists():
-        return
-
-    st.warning(f"{message}\n\nArquivo esperado: `{file_path}`")
-    st.stop()
+    with sqlite3.connect(DATABASE_FILE) as conn:
+        return pd.read_sql_query(query, conn, parse_dates=parse_dates)
 
 
 @st.cache_data(show_spinner=False)
-def read_sql_query(database_path: str, query: str) -> pd.DataFrame:
-    with sqlite3.connect(database_path) as conn:
-        return pd.read_sql_query(query, conn)
-
-
-@st.cache_data(show_spinner=False)
-def load_quality_summary(summary_path: str) -> dict[str, Any]:
-    with open(summary_path, "r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-@st.cache_data(show_spinner=True)
-def load_quality_results(results_path: str) -> pd.DataFrame:
-    return pd.read_csv(results_path)
-
-
-@st.cache_data(show_spinner=True)
-def load_date_gaps(gaps_path: str) -> pd.DataFrame:
-    return pd.read_csv(gaps_path)
-
-
-@st.cache_data(show_spinner=True)
-def load_bcb_series_data(database_path: str) -> pd.DataFrame:
-    query = """
-        SELECT series_name, description, frequency, reference_date, value
+def load_bcb_series() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT source_name, series_code, series_name, description, frequency, reference_date, value
         FROM vw_bcb_series_values
         ORDER BY series_name, reference_date
-    """
-
-    df = read_sql_query(database_path, query)
-    df["reference_date"] = pd.to_datetime(df["reference_date"])
-    return df
+        """,
+        parse_dates=["reference_date"],
+    )
 
 
-@st.cache_data(show_spinner=True)
-def load_pipeline_runs(operations_db_path: str) -> pd.DataFrame:
-    database_file = Path(operations_db_path)
-    if not database_file.exists():
-        return pd.DataFrame()
-    initialize_monitoring_db(database_file)
-
-    query = """
-        SELECT
-            run_id,
-            module_name,
-            started_at,
-            finished_at,
-            status,
-            records_input,
-            records_output,
-            warnings_count,
-            errors_count,
-            execution_time_seconds,
-            error_message
-        FROM pipeline_runs
-        ORDER BY run_id DESC
-        LIMIT 20
-    """
-
-    return read_sql_query(operations_db_path, query)
-
-
-@st.cache_data(show_spinner=True)
-def load_operational_source_freshness(operations_db_path: str) -> pd.DataFrame:
-    database_file = Path(operations_db_path)
-    if not database_file.exists():
-        return pd.DataFrame()
-    initialize_monitoring_db(database_file)
-
-    query = """
-        SELECT
-            source_name,
-            dataset_name,
-            last_available_date,
-            expected_frequency,
-            status,
-            records_count,
-            max_lag_days,
-            lag_days,
-            freshness_status,
-            details,
-            updated_at
-        FROM source_freshness
-        ORDER BY source_name, dataset_name
-    """
-
-    return read_sql_query(operations_db_path, query)
-
-
-@st.cache_data(show_spinner=True)
-def load_data_artifacts(operations_db_path: str) -> pd.DataFrame:
-    database_file = Path(operations_db_path)
-    if not database_file.exists():
-        return pd.DataFrame()
-    initialize_monitoring_db(database_file)
-
-    query = """
-        SELECT artifact_id, run_id, artifact_type, artifact_path, dataset_name,
-               created_at, row_count, status, details
-        FROM data_artifacts
-        ORDER BY artifact_id DESC
-        LIMIT 30
-    """
-    return read_sql_query(operations_db_path, query)
-
-
-@st.cache_data(show_spinner=True)
-def load_operational_alerts(alerts_csv_path: str) -> pd.DataFrame:
-    file_path = Path(alerts_csv_path)
-    if not file_path.exists():
-        return pd.DataFrame()
-    return pd.read_csv(file_path)
-
-
-@st.cache_data(show_spinner=True)
-def load_coverage_report(report_path: str) -> pd.DataFrame:
-    file_path = Path(report_path)
-    if not file_path.exists():
-        return pd.DataFrame()
-    return pd.read_csv(file_path)
-
-
-@st.cache_data(show_spinner=True)
-def load_coverage_missing_dates(missing_dates_path: str) -> pd.DataFrame:
-    file_path = Path(missing_dates_path)
-    if not file_path.exists():
-        return pd.DataFrame()
-    return pd.read_csv(file_path)
-
-
-@st.cache_data(show_spinner=True)
-def load_selic_data(database_path: str) -> pd.DataFrame:
-    query = """
-        SELECT reference_date, value AS selic_daily_value
-        FROM vw_bcb_series_values
-        WHERE series_name = 'selic_daily'
-        ORDER BY reference_date
-    """
-
-    df = read_sql_query(database_path, query)
-    df["reference_date"] = pd.to_datetime(df["reference_date"])
-    return df
-
-
-@st.cache_data(show_spinner=True)
-def load_ipca_data(database_path: str) -> pd.DataFrame:
-    query = """
-        SELECT reference_date, value AS ipca_monthly_value
-        FROM vw_bcb_series_values
-        WHERE series_name = 'ipca_monthly'
-        ORDER BY reference_date
-    """
-
-    df = read_sql_query(database_path, query)
-    df["reference_date"] = pd.to_datetime(df["reference_date"])
-    return df
-
-
-@st.cache_data(show_spinner=True)
-def load_stock_data(database_path: str) -> pd.DataFrame:
-    query = """
-        SELECT
-            reference_date,
-            ticker,
-            open_price,
-            high_price,
-            low_price,
-            close_price,
-            adjusted_close_price,
-            volume
+@st.cache_data(show_spinner=False)
+def load_b3_prices() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT source_name, ticker, market, currency, asset_type, reference_date,
+               open_price, high_price, low_price, close_price, adjusted_close_price, volume
         FROM vw_b3_stock_prices
-        ORDER BY reference_date, ticker
-    """
-
-    df = read_sql_query(database_path, query)
-    df["reference_date"] = pd.to_datetime(df["reference_date"])
-    return df
+        ORDER BY ticker, reference_date
+        """,
+        parse_dates=["reference_date"],
+    )
 
 
-@st.cache_data(show_spinner=True)
-def load_cvm_funds_data(database_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if not Path(database_path).exists():
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    with sqlite3.connect(database_path) as conn:
-        try:
-            daily_df = pd.read_sql_query(
-                """
-                SELECT fund_cnpj, fund_name, fund_status, fund_type, target_investor,
-                       reference_date, net_asset_value, quota_value,
-                       daily_subscriptions, daily_redemptions, number_of_shareholders
-                FROM vw_cvm_fund_daily_reports
-                ORDER BY reference_date, fund_name
-                """,
-                conn,
-            )
-            snapshot_df = pd.read_sql_query(
-                """
-                SELECT *
-                FROM vw_cvm_top_funds_by_net_asset
-                LIMIT 100
-                """,
-                conn,
-            )
-            flows_df = pd.read_sql_query(
-                """
-                SELECT *
-                FROM vw_cvm_fund_flows_monthly
-                ORDER BY reference_month
-                """,
-                conn,
-            )
-        except Exception:
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-
-    if not daily_df.empty:
-        daily_df["reference_date"] = pd.to_datetime(daily_df["reference_date"])
-    if not snapshot_df.empty:
-        snapshot_df["last_available_date"] = pd.to_datetime(snapshot_df["last_available_date"])
-    return daily_df, snapshot_df, flows_df
+@st.cache_data(show_spinner=False)
+def load_latest_run() -> pd.DataFrame:
+    return _read_sql(
+        """
+        SELECT run_id, started_at, finished_at, status, command, git_commit
+        FROM vw_etl_runs_latest
+        ORDER BY started_at DESC
+        LIMIT 1
+        """,
+        parse_dates=["started_at", "finished_at"],
+    )
 
 
-@st.cache_data(show_spinner=True)
-def load_traceability_data(database_path: str) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    if not Path(database_path).exists():
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    with sqlite3.connect(database_path) as conn:
-        try:
-            runs_df = pd.read_sql_query("SELECT * FROM vw_etl_runs_latest", conn)
-            versions_df = pd.read_sql_query("SELECT * FROM vw_dataset_versions_latest", conn)
-            summary_df = pd.read_sql_query("SELECT * FROM vw_reconciliation_summary", conn)
-        except Exception:
-            return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
-    return runs_df, versions_df, summary_df
-
-
-@st.cache_data(show_spinner=True)
-def load_reconciliation_latest() -> tuple[dict[str, Any], pd.DataFrame]:
-    json_file = Path("reports/reconciliation/latest.json")
-    csv_file = Path("reports/reconciliation/latest.csv")
-    if not json_file.exists() or not csv_file.exists():
-        return {}, pd.DataFrame()
-    with open(json_file, "r", encoding="utf-8") as file:
-        payload = json.load(file)
-    return payload.get("summary", {}), pd.read_csv(csv_file)
-
-
-def calculate_ipca_accumulated(ipca_df: pd.DataFrame, year: int = 2024) -> float | None:
-    filtered_df = ipca_df[ipca_df["reference_date"].dt.year == year].copy()
-
-    if filtered_df.empty:
-        return None
-
-    accumulated = ((filtered_df["ipca_monthly_value"] / 100 + 1).prod() - 1) * 100
-    return float(accumulated)
-
-
-def calculate_stock_returns(stocks_df: pd.DataFrame) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-
-    if stocks_df.empty:
-        return pd.DataFrame(columns=STOCK_RETURN_COLUMNS)
-
-    for ticker, ticker_df in stocks_df.groupby("ticker"):
-        ticker_df = ticker_df.sort_values("reference_date")
-
-        first_row = ticker_df.iloc[0]
-        last_row = ticker_df.iloc[-1]
-
-        first_price = float(first_row["adjusted_close_price"])
-        last_price = float(last_row["adjusted_close_price"])
-
-        if first_price == 0:
-            return_pct = None
-        else:
-            return_pct = ((last_price / first_price) - 1) * 100
-
-        rows.append(
-            {
-                "ticker": ticker,
-                "data_inicial": first_row["reference_date"],
-                "data_final": last_row["reference_date"],
-                "preco_ajustado_inicial": first_price,
-                "preco_ajustado_final": last_price,
-                "retorno_pct": return_pct,
-            }
-        )
-
-    return pd.DataFrame(rows, columns=STOCK_RETURN_COLUMNS).sort_values("ticker")
-
-
-def calculate_benchmark_returns(
-    bcb_series_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-
-    for ticker, ticker_df in stocks_df.groupby("ticker"):
-        ticker_df = ticker_df.sort_values("reference_date")
-        first_value = float(ticker_df.iloc[0]["adjusted_close_price"])
-        last_value = float(ticker_df.iloc[-1]["adjusted_close_price"])
-        return_pct = ((last_value / first_value) - 1) * 100 if first_value else None
-        rows.append({
-            "benchmark": ticker,
-            "tipo": "mercado",
-            "data_inicial": ticker_df.iloc[0]["reference_date"],
-            "data_final": ticker_df.iloc[-1]["reference_date"],
-            "valor_inicial": first_value,
-            "valor_final": last_value,
-            "retorno_pct": return_pct,
-        })
-
-    for series_name, series_df in bcb_series_df.groupby("series_name"):
-        series_df = series_df.sort_values("reference_date")
-        first_value = float(series_df.iloc[0]["value"])
-        last_value = float(series_df.iloc[-1]["value"])
-        if series_name in {"selic_daily", "cdi_daily", "ipca_monthly"}:
-            return_pct = ((series_df["value"] / 100 + 1).prod() - 1) * 100
-        else:
-            return_pct = ((last_value / first_value) - 1) * 100 if first_value else None
-
-        rows.append({
-            "benchmark": series_name,
-            "tipo": "macro",
-            "data_inicial": series_df.iloc[0]["reference_date"],
-            "data_final": series_df.iloc[-1]["reference_date"],
-            "valor_inicial": first_value,
-            "valor_final": last_value,
-            "retorno_pct": return_pct,
-        })
-
-    return pd.DataFrame(rows).sort_values(["tipo", "benchmark"])
-
-
-def filter_by_date_range(
-    df: pd.DataFrame,
-    date_column: str,
-    start_date,
-    end_date,
-) -> pd.DataFrame:
-    start_timestamp = pd.to_datetime(start_date)
-    end_timestamp = pd.to_datetime(end_date)
-
-    return df[
-        (df[date_column] >= start_timestamp)
-        & (df[date_column] <= end_timestamp)
-    ].copy()
-
-
-def normalize_date_range(selected_range) -> tuple[Any, Any] | None:
-    if not isinstance(selected_range, tuple) or len(selected_range) != 2:
-        return None
-
-    return selected_range
-
-
-def stop_if_empty(df: pd.DataFrame, message: str) -> None:
-    if not df.empty:
-        return
-
-    st.warning(message)
-    st.stop()
-
-
-def latest_row_or_none(df: pd.DataFrame, sort_column: str) -> pd.Series | None:
-    if df.empty:
-        return None
-
-    return df.sort_values(sort_column).iloc[-1]
+def format_date(value) -> str:
+    if pd.isna(value):
+        return "N/D"
+    return pd.to_datetime(value).strftime("%d/%m/%Y")
 
 
 def format_pct(value: float | None) -> str:
     if value is None or pd.isna(value):
         return "N/D"
-
     return f"{value:.2f}%"
 
 
-def format_number(value: float | int | None, decimals: int = 2) -> str:
-    if value is None or pd.isna(value):
-        return "N/D"
+def date_range_filter(df: pd.DataFrame, label: str) -> tuple[pd.Timestamp, pd.Timestamp] | None:
+    if df.empty:
+        return None
 
-    return f"{value:,.{decimals}f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    min_date = df["reference_date"].min().date()
+    max_date = df["reference_date"].max().date()
+    selected = st.date_input(label, value=(min_date, max_date), min_value=min_date, max_value=max_date)
+
+    if not isinstance(selected, tuple) or len(selected) != 2:
+        st.warning("Selecione uma data inicial e uma data final.")
+        return None
+
+    start_date, end_date = selected
+    return pd.Timestamp(start_date), pd.Timestamp(end_date)
 
 
-def classify_freshness(reference_date: pd.Timestamp, max_age_days: int, warning_age_days: int) -> str:
-    age_days = (pd.Timestamp.today().normalize() - reference_date.normalize()).days
+def filtered_by_period(df: pd.DataFrame, period: tuple[pd.Timestamp, pd.Timestamp] | None) -> pd.DataFrame:
+    if period is None or df.empty:
+        return pd.DataFrame(columns=df.columns)
 
-    if age_days <= max_age_days:
-        return "OK"
-    if age_days <= warning_age_days:
-        return "Atencao"
-    return "Desatualizado"
+    start_date, end_date = period
+    return df[(df["reference_date"] >= start_date) & (df["reference_date"] <= end_date)].copy()
 
 
-def build_freshness_df(
-    selic_df: pd.DataFrame,
-    ipca_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-    bcb_series_df: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
+def calculate_ticker_returns(stocks_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, object]] = []
+    if stocks_df.empty:
+        return pd.DataFrame(rows)
 
-    latest_selic_date = selic_df["reference_date"].max()
-    rows.append(
-        {
-            "fonte": "BCB Selic diaria",
-            "ultima_data": latest_selic_date,
-            "registros": len(selic_df),
-            "status": classify_freshness(latest_selic_date, max_age_days=3, warning_age_days=7),
-        }
-    )
+    for ticker, ticker_df in stocks_df.dropna(subset=["adjusted_close_price"]).groupby("ticker"):
+        ticker_df = ticker_df.sort_values("reference_date")
+        if ticker_df.empty:
+            continue
 
-    latest_ipca_date = ipca_df["reference_date"].max()
-    rows.append(
-        {
-            "fonte": "BCB IPCA mensal",
-            "ultima_data": latest_ipca_date,
-            "registros": len(ipca_df),
-            "status": classify_freshness(latest_ipca_date, max_age_days=45, warning_age_days=75),
-        }
-    )
-
-    for ticker, ticker_df in stocks_df.groupby("ticker"):
-        latest_stock_date = ticker_df["reference_date"].max()
+        first = ticker_df.iloc[0]
+        last = ticker_df.iloc[-1]
+        first_price = float(first["adjusted_close_price"])
+        last_price = float(last["adjusted_close_price"])
+        return_pct = ((last_price / first_price) - 1) * 100 if first_price else None
         rows.append(
             {
-                "fonte": f"B3 {ticker}",
-                "ultima_data": latest_stock_date,
-                "registros": len(ticker_df),
-                "status": classify_freshness(latest_stock_date, max_age_days=3, warning_age_days=7),
-            }
-        )
-
-    if bcb_series_df is not None:
-        known_series = {"selic_daily", "ipca_monthly"}
-        for series_name, series_df in bcb_series_df[~bcb_series_df["series_name"].isin(known_series)].groupby("series_name"):
-            latest_bcb_date = series_df["reference_date"].max()
-            frequency = str(series_df["frequency"].iloc[0])
-            rows.append(
-                {
-                    "fonte": f"BCB {series_name}",
-                    "ultima_data": latest_bcb_date,
-                    "registros": len(series_df),
-                    "status": classify_freshness(
-                        latest_bcb_date,
-                        max_age_days=45 if frequency == "monthly" else 3,
-                        warning_age_days=75 if frequency == "monthly" else 7,
-                    ),
-                }
-            )
-
-    freshness_df = pd.DataFrame(rows)
-    freshness_df["dias_desde_ultima_data"] = (
-        pd.Timestamp.today().normalize() - freshness_df["ultima_data"].dt.normalize()
-    ).dt.days
-    freshness_df["ultima_data"] = freshness_df["ultima_data"].dt.strftime("%d/%m/%Y")
-
-    return freshness_df
-
-
-def build_operational_freshness_display(source_freshness_df: pd.DataFrame) -> pd.DataFrame:
-    display_df = source_freshness_df.copy()
-    display_df["fonte"] = display_df["source_name"] + " - " + display_df["dataset_name"]
-    display_df["ultima_data"] = pd.to_datetime(display_df["last_available_date"]).dt.strftime("%d/%m/%Y")
-    if "lag_days" not in display_df.columns or display_df["lag_days"].isna().all():
-        display_df["lag_days"] = (
-            pd.Timestamp.today().normalize()
-            - pd.to_datetime(display_df["last_available_date"]).dt.normalize()
-        ).dt.days
-    if "freshness_status" in display_df.columns:
-        display_df["status"] = display_df["freshness_status"].fillna(display_df["status"])
-    display_df = display_df.rename(
-        columns={
-            "expected_frequency": "frequencia_esperada",
-            "records_count": "registros",
-            "max_lag_days": "sla_dias",
-            "lag_days": "lag_dias",
-            "updated_at": "atualizado_em",
-        }
-    )
-    return display_df[
-        [
-            "fonte",
-            "ultima_data",
-            "frequencia_esperada",
-            "status",
-            "registros",
-            "sla_dias",
-            "lag_dias",
-            "atualizado_em",
-        ]
-    ]
-
-
-def render_header() -> None:
-    st.title("Brazilian Financial Data Pipeline")
-
-
-def render_sidebar() -> str:
-    st.sidebar.title("Navegacao")
-
-    page = st.sidebar.radio(
-        "Pagina",
-        options=PAGE_OPTIONS,
-    )
-
-    st.sidebar.markdown("---")
-    st.sidebar.caption(f"Banco: `{PROCESSED_DB_FILE}`")
-
-    return page
-
-
-def render_executive_summary(
-    bcb_series_df: pd.DataFrame,
-    selic_df: pd.DataFrame,
-    ipca_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-) -> None:
-    st.header("Resumo Executivo")
-
-    latest_selic = selic_df.sort_values("reference_date").iloc[-1]
-    latest_usd = latest_row_or_none(bcb_series_df[bcb_series_df["series_name"] == "usd_brl_ptax_sell_daily"], "reference_date")
-    latest_cdi = latest_row_or_none(bcb_series_df[bcb_series_df["series_name"] == "cdi_daily"], "reference_date")
-    latest_ibov = latest_row_or_none(stocks_df[stocks_df["ticker"] == "^BVSP"], "reference_date")
-    ipca_accumulated_2024 = calculate_ipca_accumulated(ipca_df, year=2024)
-    stock_returns_df = calculate_stock_returns(stocks_df)
-
-    min_date = min(
-        selic_df["reference_date"].min(),
-        ipca_df["reference_date"].min(),
-        stocks_df["reference_date"].min(),
-    )
-
-    max_date = max(
-        selic_df["reference_date"].max(),
-        ipca_df["reference_date"].max(),
-        stocks_df["reference_date"].max(),
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Ultima Selic diaria", f"{latest_selic['selic_daily_value']:.6f}")
-    col2.metric("CDI diario", f"{latest_cdi['value']:.6f}" if latest_cdi is not None else "N/D")
-    col3.metric("Dolar PTAX venda", f"R$ {format_number(float(latest_usd['value']), 4)}" if latest_usd is not None else "N/D")
-    col4.metric("Ibovespa", format_number(float(latest_ibov["close_price"]), 2) if latest_ibov is not None else "N/D")
-
-    col5, col6, col7, col8 = st.columns(4)
-    col5.metric("IPCA acumulado 2024", format_pct(ipca_accumulated_2024))
-    col6.metric("Data Selic", latest_selic["reference_date"].strftime("%d/%m/%Y"))
-    col7.metric("Tickers/benchmarks B3", stocks_df["ticker"].nunique())
-    col8.metric("Series BCB", bcb_series_df["series_name"].nunique())
-
-    st.markdown("---")
-    st.subheader("Cobertura do pipeline")
-
-    coverage_col1, coverage_col2, coverage_col3, coverage_col4 = st.columns(4)
-    coverage_col1.metric("Inicio dos dados", min_date.strftime("%d/%m/%Y"))
-    coverage_col2.metric("Fim dos dados", max_date.strftime("%d/%m/%Y"))
-    coverage_col3.metric("Registros BCB", len(selic_df) + len(ipca_df))
-    coverage_col4.metric("Registros B3", len(stocks_df))
-
-    st.markdown("---")
-    st.subheader("Retorno das acoes no periodo")
-
-    display_returns_df = stock_returns_df.copy()
-    display_returns_df["data_inicial"] = display_returns_df["data_inicial"].dt.strftime("%d/%m/%Y")
-    display_returns_df["data_final"] = display_returns_df["data_final"].dt.strftime("%d/%m/%Y")
-    display_returns_df["preco_ajustado_inicial"] = display_returns_df["preco_ajustado_inicial"].round(2)
-    display_returns_df["preco_ajustado_final"] = display_returns_df["preco_ajustado_final"].round(2)
-    display_returns_df["retorno_pct"] = display_returns_df["retorno_pct"].round(2)
-
-    st.dataframe(display_returns_df, use_container_width=True, hide_index=True)
-
-    fig_returns = px.bar(
-        stock_returns_df,
-        x="ticker",
-        y="retorno_pct",
-        text="retorno_pct",
-        title="Retorno percentual por acao no periodo",
-        labels={"ticker": "Ticker", "retorno_pct": "Retorno (%)"},
-    )
-    fig_returns.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig_returns.update_layout(yaxis_ticksuffix="%", uniformtext_minsize=8, uniformtext_mode="hide")
-
-    st.plotly_chart(fig_returns, use_container_width=True)
-
-
-def render_benchmarks_page(
-    bcb_series_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-) -> None:
-    st.header("Benchmarks")
-
-    returns_df = calculate_benchmark_returns(bcb_series_df, stocks_df)
-    display_df = returns_df.copy()
-    display_df["data_inicial"] = display_df["data_inicial"].dt.strftime("%d/%m/%Y")
-    display_df["data_final"] = display_df["data_final"].dt.strftime("%d/%m/%Y")
-    display_df["valor_inicial"] = display_df["valor_inicial"].round(4)
-    display_df["valor_final"] = display_df["valor_final"].round(4)
-    display_df["retorno_pct"] = display_df["retorno_pct"].round(2)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Benchmarks", len(returns_df))
-    col2.metric("Macro", int((returns_df["tipo"] == "macro").sum()))
-    col3.metric("Mercado", int((returns_df["tipo"] == "mercado").sum()))
-
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    fig_returns = px.bar(
-        returns_df,
-        x="benchmark",
-        y="retorno_pct",
-        color="tipo",
-        text="retorno_pct",
-        title="Retorno acumulado no periodo",
-        labels={"benchmark": "Benchmark", "retorno_pct": "Retorno (%)", "tipo": "Tipo"},
-    )
-    fig_returns.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig_returns.update_layout(yaxis_ticksuffix="%")
-    st.plotly_chart(fig_returns, use_container_width=True)
-
-    b3_line_df = stocks_df.sort_values(["ticker", "reference_date"]).copy()
-    b3_line_df["base_100"] = b3_line_df.groupby("ticker")["adjusted_close_price"].transform(lambda s: s / s.iloc[0] * 100)
-
-    fig_b3 = px.line(
-        b3_line_df,
-        x="reference_date",
-        y="base_100",
-        color="ticker",
-        title="Ativos B3 e Ibovespa em base 100",
-        labels={"reference_date": "Data", "base_100": "Base 100", "ticker": "Ticker"},
-    )
-    fig_b3.update_layout(hovermode="x unified")
-    st.plotly_chart(fig_b3, use_container_width=True)
-
-    macro_df = bcb_series_df.sort_values(["series_name", "reference_date"]).copy()
-    macro_df["base_100"] = macro_df.groupby("series_name")["value"].transform(lambda s: s / s.iloc[0] * 100)
-    fig_macro = px.line(
-        macro_df,
-        x="reference_date",
-        y="base_100",
-        color="series_name",
-        title="Indicadores macro em base 100",
-        labels={"reference_date": "Data", "base_100": "Base 100", "series_name": "Serie"},
-    )
-    fig_macro.update_layout(hovermode="x unified")
-    st.plotly_chart(fig_macro, use_container_width=True)
-
-
-def render_pipeline_status_page(
-    bcb_series_df: pd.DataFrame,
-    selic_df: pd.DataFrame,
-    ipca_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-) -> None:
-    st.header("Status do Pipeline")
-
-    pipeline_runs_df = load_pipeline_runs(str(OPERATIONS_DB_FILE))
-    source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
-    artifacts_df = load_data_artifacts(str(OPERATIONS_DB_FILE))
-
-    if source_freshness_df.empty:
-        freshness_df = build_freshness_df(selic_df, ipca_df, stocks_df, bcb_series_df)
-        lag_column = "dias_desde_ultima_data"
-        st.info("Freshness calculado em tempo real. Execute o pipeline para popular o historico operacional.")
-    else:
-        freshness_df = build_operational_freshness_display(source_freshness_df)
-        lag_column = "lag_dias"
-
-    status_counts = freshness_df["status"].value_counts().to_dict()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Fontes monitoradas", len(freshness_df))
-    col2.metric("OK", status_counts.get("OK", 0))
-    col3.metric("Atencao", status_counts.get("Atencao", 0))
-    col4.metric("Desatualizado", status_counts.get("Desatualizado", 0))
-
-    st.markdown("---")
-    st.subheader("Freshness por fonte")
-    st.dataframe(freshness_df, use_container_width=True, hide_index=True)
-
-    fig = px.bar(
-        freshness_df,
-        x="fonte",
-        y=lag_column,
-        color="status",
-        title="Dias desde a ultima data disponivel",
-        labels={"fonte": "Fonte", lag_column: "Dias", "status": "Status"},
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("Historico recente de execucoes")
-
-    if pipeline_runs_df.empty:
-        st.info("Nenhuma execucao registrada em pipeline_runs ainda.")
-        return
-
-    latest_run = pipeline_runs_df.iloc[0]
-    run_col1, run_col2, run_col3, run_col4 = st.columns(4)
-    run_col1.metric("Ultima execucao", latest_run["module_name"])
-    run_col2.metric("Status", latest_run["status"])
-    run_col3.metric("Duracao (s)", format_number(latest_run["execution_time_seconds"], 2))
-    run_col4.metric("Falhas recentes", int((pipeline_runs_df["status"] == "FAILED").sum()))
-
-    st.dataframe(pipeline_runs_df, use_container_width=True, hide_index=True)
-
-    duration_df = pipeline_runs_df.dropna(subset=["execution_time_seconds"]).copy()
-    if not duration_df.empty:
-        fig_runs = px.bar(
-            duration_df.sort_values("run_id"),
-            x="run_id",
-            y="execution_time_seconds",
-            color="status",
-            hover_data=["module_name", "records_input", "records_output"],
-            title="Duracao das ultimas execucoes registradas",
-            labels={"run_id": "Run", "execution_time_seconds": "Segundos", "status": "Status"},
-        )
-        st.plotly_chart(fig_runs, use_container_width=True)
-
-    st.subheader("Artefatos recentes")
-    if artifacts_df.empty:
-        st.info("Nenhum artefato registrado em data_artifacts ainda.")
-    else:
-        st.dataframe(artifacts_df, use_container_width=True, hide_index=True)
-
-
-def render_traceability_page(database_path: str) -> None:
-    st.header("Rastreabilidade")
-    runs_df, versions_df, summary_df = load_traceability_data(database_path)
-    if runs_df.empty and versions_df.empty and summary_df.empty:
-        st.info("Nenhuma execucao com rastreabilidade encontrada.")
-        return
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Runs ETL", len(runs_df))
-    col2.metric("Versoes de datasets", len(versions_df))
-    col3.metric("Resumo reconciliacao", len(summary_df))
-
-    st.subheader("Ultimos runs")
-    st.dataframe(runs_df, use_container_width=True, hide_index=True)
-
-    st.subheader("Versoes de datasets")
-    st.dataframe(versions_df, use_container_width=True, hide_index=True)
-
-    st.subheader("Resumo de reconciliacao")
-    st.dataframe(summary_df, use_container_width=True, hide_index=True)
-
-
-def render_reconciliation_page() -> None:
-    st.header("Reconciliacao")
-    summary, checks_df = load_reconciliation_latest()
-    if not summary and checks_df.empty:
-        st.info("Nenhum relatorio de reconciliacao encontrado. Execute `python run_pipeline.py --reconcile-only`.")
-        return
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Status geral", summary.get("overall_status", "N/D"))
-    col2.metric("PASSED", summary.get("passed", 0))
-    col3.metric("FAILED", summary.get("failed", 0))
-    col4.metric("SKIPPED", summary.get("skipped", 0))
-
-    st.caption(f"run_id: {summary.get('run_id', 'N/D')} | git: {summary.get('git_commit', 'N/D')}")
-    if checks_df.empty:
-        return
-
-    statuses = sorted(checks_df["status"].dropna().unique().tolist())
-    selected_statuses = st.multiselect("Status", options=statuses, default=statuses)
-    filtered_df = checks_df[checks_df["status"].isin(selected_statuses)].copy()
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-
-
-def render_performance_benchmarks_page(
-    stocks_df: pd.DataFrame,
-    ipca_df: pd.DataFrame,
-) -> None:
-    st.header("Performance & Benchmarks")
-
-    benchmark_df = stocks_df[stocks_df["ticker"] == "^BVSP"].copy()
-    assets_df = stocks_df[stocks_df["ticker"] != "^BVSP"].copy()
-    stop_if_empty(assets_df, "Nao ha ativos para calcular performance.")
-
-    summary_df = build_asset_performance_summary(assets_df, ipca_df=ipca_df, benchmark_df=benchmark_df)
-    stop_if_empty(summary_df, "Nao foi possivel calcular performance.")
-
-    display_df = summary_df.copy()
-    display_df["start_date"] = pd.to_datetime(display_df["start_date"]).dt.strftime("%d/%m/%Y")
-    display_df["end_date"] = pd.to_datetime(display_df["end_date"]).dt.strftime("%d/%m/%Y")
-    for column in [
-        "initial_price",
-        "final_price",
-        "nominal_return_pct",
-        "real_return_pct",
-        "annualized_volatility_pct",
-        "max_drawdown_pct",
-        "benchmark_return_pct",
-        "excess_return_pct",
-    ]:
-        display_df[column] = display_df[column].round(2)
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Ativos", len(summary_df))
-    col2.metric("Maior retorno nominal", format_pct(summary_df["nominal_return_pct"].max()))
-    col3.metric("Maior retorno real", format_pct(summary_df["real_return_pct"].max()))
-    col4.metric("Benchmark Ibovespa", format_pct(summary_df["benchmark_return_pct"].dropna().iloc[0] if summary_df["benchmark_return_pct"].notna().any() else None))
-
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    fig_returns = px.bar(
-        summary_df,
-        x="ticker",
-        y=["nominal_return_pct", "real_return_pct", "excess_return_pct"],
-        barmode="group",
-        title="Retorno nominal, real e excesso contra Ibovespa",
-        labels={"value": "Retorno (%)", "ticker": "Ticker", "variable": "Metrica"},
-    )
-    st.plotly_chart(fig_returns, use_container_width=True)
-
-    indexed_df = assets_df.sort_values(["ticker", "reference_date"]).copy()
-    indexed_df["base_100"] = indexed_df.groupby("ticker")["adjusted_close_price"].transform(lambda s: s / s.iloc[0] * 100)
-    fig_base = px.line(
-        indexed_df,
-        x="reference_date",
-        y="base_100",
-        color="ticker",
-        title="Preco ajustado em base 100",
-        labels={"reference_date": "Data", "base_100": "Base 100", "ticker": "Ticker"},
-    )
-    fig_base.update_layout(hovermode="x unified")
-    st.plotly_chart(fig_base, use_container_width=True)
-
-
-def render_risk_correlation_page(stocks_df: pd.DataFrame) -> None:
-    st.header("Risco & Correlacao")
-
-    assets_df = stocks_df[stocks_df["ticker"] != "^BVSP"].copy()
-    stop_if_empty(assets_df, "Nao ha ativos para calcular risco.")
-
-    risk_rows = []
-    drawdown_frames = []
-    for ticker, ticker_df in assets_df.groupby("ticker"):
-        ticker_df = ticker_df.sort_values("reference_date").copy()
-        running_max = ticker_df["adjusted_close_price"].cummax()
-        ticker_df["drawdown_pct"] = (ticker_df["adjusted_close_price"] / running_max - 1) * 100
-        drawdown_frames.append(ticker_df[["reference_date", "ticker", "drawdown_pct"]])
-        risk_rows.append(
-            {
                 "ticker": ticker,
-                "max_drawdown_pct": calculate_max_drawdown(ticker_df["adjusted_close_price"]),
-                "daily_volatility_pct": ticker_df["adjusted_close_price"].pct_change(fill_method=None).std() * 100,
+                "data_inicial": first["reference_date"],
+                "data_final": last["reference_date"],
+                "preco_inicial": first_price,
+                "preco_final": last_price,
+                "retorno_pct": return_pct,
             }
         )
 
-    risk_df = pd.DataFrame(risk_rows)
-    risk_df["max_drawdown_pct"] = risk_df["max_drawdown_pct"].round(2)
-    risk_df["daily_volatility_pct"] = risk_df["daily_volatility_pct"].round(2)
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Ativos analisados", len(risk_df))
-    col2.metric("Maior volatilidade diaria", format_pct(risk_df["daily_volatility_pct"].max()))
-    col3.metric("Pior drawdown", format_pct(risk_df["max_drawdown_pct"].min()))
-
-    st.dataframe(risk_df.sort_values("daily_volatility_pct", ascending=False), use_container_width=True, hide_index=True)
-
-    price_matrix = assets_df.pivot_table(index="reference_date", columns="ticker", values="adjusted_close_price", aggfunc="last").sort_index()
-    corr_df = calculate_correlation_matrix(price_matrix)
-    if not corr_df.empty:
-        fig_corr = px.imshow(
-            corr_df,
-            text_auto=".2f",
-            title="Matriz de correlacao dos retornos diarios",
-            color_continuous_scale="RdBu",
-            zmin=-1,
-            zmax=1,
-        )
-        st.plotly_chart(fig_corr, use_container_width=True)
-
-    drawdown_df = pd.concat(drawdown_frames, ignore_index=True)
-    fig_drawdown = px.line(
-        drawdown_df,
-        x="reference_date",
-        y="drawdown_pct",
-        color="ticker",
-        title="Drawdown por ativo",
-        labels={"reference_date": "Data", "drawdown_pct": "Drawdown (%)", "ticker": "Ticker"},
-    )
-    fig_drawdown.update_layout(hovermode="x unified", yaxis_ticksuffix="%")
-    st.plotly_chart(fig_drawdown, use_container_width=True)
+    return pd.DataFrame(rows)
 
 
-def render_operational_alerts_page() -> None:
-    st.header("Alertas Operacionais")
+def render_executive_summary(bcb_df: pd.DataFrame, stocks_df: pd.DataFrame, latest_run_df: pd.DataFrame) -> None:
+    st.title("Resumo Executivo")
 
-    alerts_df = load_operational_alerts(str(ALERTS_CSV_FILE))
-    if alerts_df.empty:
-        st.info("Nenhum arquivo de alertas encontrado. Execute python src\\alerts.py.")
+    if bcb_df.empty and stocks_df.empty:
+        st.warning("Nao ha dados carregados nas views do banco processado.")
         return
 
-    counts = alerts_df["severity"].value_counts().to_dict()
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Alertas", len(alerts_df))
-    col2.metric("INFO", counts.get("INFO", 0))
-    col3.metric("WARNING", counts.get("WARNING", 0))
-    col4.metric("CRITICAL", counts.get("CRITICAL", 0))
+    selic_df = bcb_df[bcb_df["series_name"] == "selic_daily"].sort_values("reference_date")
+    ipca_2024 = bcb_df[
+        (bcb_df["series_name"] == "ipca_monthly")
+        & (bcb_df["reference_date"].dt.year == 2024)
+    ].copy()
+    returns_df = calculate_ticker_returns(stocks_df)
 
-    selected_severities = st.multiselect(
-        "Severidade",
-        options=sorted(alerts_df["severity"].unique().tolist()),
-        default=sorted(alerts_df["severity"].unique().tolist()),
-    )
-    filtered_df = alerts_df[alerts_df["severity"].isin(selected_severities)].copy()
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+    selic_value = None
+    selic_date = None
+    if not selic_df.empty:
+        selic_last = selic_df.iloc[-1]
+        selic_value = float(selic_last["value"])
+        selic_date = selic_last["reference_date"]
 
+    ipca_accumulated = None
+    if not ipca_2024.empty:
+        ipca_accumulated = ((ipca_2024["value"] / 100 + 1).prod() - 1) * 100
 
-def render_cvm_funds_page(database_path: str) -> None:
-    st.header("Fundos CVM")
-
-    daily_df, snapshot_df, flows_df = load_cvm_funds_data(database_path)
-    source_freshness_df = load_operational_source_freshness(str(OPERATIONS_DB_FILE))
-
-    if daily_df.empty:
-        st.info("Dados CVM ainda nao carregados. Execute `python src\\collect_data.py --include-cvm --cvm-year-month 202401` e depois a carga final.")
-        if not source_freshness_df.empty:
-            cvm_status_df = source_freshness_df[source_freshness_df["source_name"].isin(["CVM", "ANBIMA"])].copy()
-            if not cvm_status_df.empty:
-                st.subheader("Status institucional")
-                st.dataframe(build_operational_freshness_display(cvm_status_df), use_container_width=True, hide_index=True)
-        return
-
-    latest_date = daily_df["reference_date"].max()
-    latest_df = daily_df[daily_df["reference_date"] == latest_date].copy()
-    total_net_assets = latest_df["net_asset_value"].sum()
-    total_shareholders = latest_df["number_of_shareholders"].sum()
+    latest_run = latest_run_df.iloc[0] if not latest_run_df.empty else None
+    total_bcb = int(len(bcb_df))
+    total_b3 = int(len(stocks_df))
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Fundos", daily_df["fund_cnpj"].nunique())
-    col2.metric("Ultima data", latest_date.strftime("%d/%m/%Y"))
-    col3.metric("PL total", format_number(float(total_net_assets), 2))
-    col4.metric("Cotistas", format_number(int(total_shareholders), 0))
+    col1.metric("Selic mais recente", f"{selic_value:.6f}" if selic_value is not None else "N/D", format_date(selic_date))
+    col2.metric("IPCA acumulado 2024", format_pct(ipca_accumulated))
+    col3.metric("Registros BCB", f"{total_bcb:,}".replace(",", "."))
+    col4.metric("Registros B3", f"{total_b3:,}".replace(",", "."))
 
-    if not source_freshness_df.empty:
-        cvm_status_df = source_freshness_df[source_freshness_df["source_name"].isin(["CVM", "ANBIMA"])].copy()
-        if not cvm_status_df.empty:
-            st.subheader("Freshness institucional")
-            st.dataframe(build_operational_freshness_display(cvm_status_df), use_container_width=True, hide_index=True)
+    col5, col6 = st.columns(2)
+    col5.metric("Ultima execucao", format_date(latest_run["finished_at"]) if latest_run is not None else "N/D")
+    col6.metric("Status reconciliacao", str(latest_run["status"]) if latest_run is not None else "N/D")
 
-    st.subheader("Top 10 fundos por patrimonio liquido")
-    top_df = snapshot_df.head(10).copy() if not snapshot_df.empty else latest_df.sort_values("net_asset_value", ascending=False).head(10)
-    st.dataframe(top_df, use_container_width=True, hide_index=True)
-
-    fig_top = px.bar(
-        top_df,
-        x="fund_name",
-        y="net_asset_value",
-        title="Top fundos por PL",
-        labels={"fund_name": "Fundo", "net_asset_value": "Patrimonio liquido"},
-    )
-    st.plotly_chart(fig_top, use_container_width=True)
-
-    selected_funds = st.multiselect(
-        "Fundos",
-        options=top_df["fund_cnpj"].dropna().unique().tolist(),
-        default=top_df["fund_cnpj"].dropna().unique().tolist()[:5],
-    )
-    if selected_funds:
-        selected_df = daily_df[daily_df["fund_cnpj"].isin(selected_funds)].copy()
-        fig_evolution = px.line(
-            selected_df,
-            x="reference_date",
-            y="net_asset_value",
-            color="fund_name",
-            title="Evolucao do PL dos fundos selecionados",
-            labels={"reference_date": "Data", "net_asset_value": "PL", "fund_name": "Fundo"},
-        )
-        fig_evolution.update_layout(hovermode="x unified")
-        st.plotly_chart(fig_evolution, use_container_width=True)
-
-    if not flows_df.empty:
-        st.subheader("Fluxo mensal agregado")
-        st.dataframe(flows_df, use_container_width=True, hide_index=True)
-        fig_flows = px.bar(
-            flows_df,
-            x="reference_month",
-            y=["total_subscriptions", "total_redemptions", "net_flow"],
-            barmode="group",
-            title="Captacao, resgate e fluxo liquido",
-            labels={"reference_month": "Mes", "value": "Valor", "variable": "Metrica"},
-        )
-        st.plotly_chart(fig_flows, use_container_width=True)
-
-    with st.expander("Tabela CVM completa"):
-        st.dataframe(daily_df, use_container_width=True, hide_index=True)
-
-
-def render_historical_coverage_page(
-    bcb_series_df: pd.DataFrame,
-    stocks_df: pd.DataFrame,
-) -> None:
-    st.header("Cobertura Historica")
-
-    coverage_df = load_coverage_report(str(COVERAGE_REPORT_FILE))
-    missing_df = load_coverage_missing_dates(str(COVERAGE_MISSING_DATES_FILE))
-
-    if coverage_df.empty:
-        start_date = min(bcb_series_df["reference_date"].min(), stocks_df["reference_date"].min())
-        end_date = max(bcb_series_df["reference_date"].max(), stocks_df["reference_date"].max())
-        coverage_df, missing_df = build_coverage_report(bcb_series_df, stocks_df, start_date, end_date)
-        st.info("Relatorio de cobertura ainda nao encontrado em disco. Exibindo calculo em memoria.")
-
-    stop_if_empty(coverage_df, "Nao ha dados suficientes para calcular cobertura historica.")
-
-    status_counts = coverage_df["status"].value_counts().to_dict()
-    average_coverage = coverage_df["coverage_pct"].dropna().mean()
-    minimum_coverage = coverage_df["coverage_pct"].dropna().min()
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Datasets", len(coverage_df))
-    col2.metric("Cobertura media", format_pct(float(average_coverage)) if pd.notna(average_coverage) else "N/D")
-    col3.metric("Menor cobertura", format_pct(float(minimum_coverage)) if pd.notna(minimum_coverage) else "N/D")
-    col4.metric("Gaps", int(coverage_df["missing_observations"].sum()))
-
-    status_col1, status_col2, status_col3 = st.columns(3)
-    status_col1.metric("OK", status_counts.get("OK", 0))
-    status_col2.metric("WARNING", status_counts.get("WARNING", 0))
-    status_col3.metric("CRITICAL", status_counts.get("CRITICAL", 0))
-
-    st.markdown("---")
-    st.subheader("Cobertura por fonte")
-    display_df = coverage_df.copy()
-    for column in ["start_date", "end_date", "first_available_date", "last_available_date"]:
-        if column in display_df.columns:
-            display_df[column] = pd.to_datetime(display_df[column], errors="coerce").dt.strftime("%d/%m/%Y")
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
-
-    fig = px.bar(
-        coverage_df.sort_values(["source_name", "dataset_name"]),
-        x="dataset_name",
-        y="coverage_pct",
-        color="status",
-        text="coverage_pct",
-        hover_data=["source_name", "expected_observations", "actual_observations", "missing_observations"],
-        title="Percentual de cobertura historica por dataset",
-        labels={"dataset_name": "Dataset", "coverage_pct": "Cobertura (%)", "status": "Status"},
-    )
-    fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig.update_layout(yaxis_ticksuffix="%")
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Datas esperadas ausentes")
-    if missing_df.empty:
-        st.success("Nenhuma data esperada ausente no periodo analisado.")
+    st.subheader("Retorno por ticker no periodo")
+    if returns_df.empty:
+        st.warning("Nao ha cotacoes suficientes para calcular retorno por ticker.")
     else:
-        selected_datasets = st.multiselect(
-            "Dataset",
-            options=sorted(missing_df["dataset_name"].unique().tolist()),
-            default=sorted(missing_df["dataset_name"].unique().tolist())[:5],
+        fig = px.bar(
+            returns_df,
+            x="ticker",
+            y="retorno_pct",
+            text="retorno_pct",
+            labels={"ticker": "Ticker", "retorno_pct": "Retorno (%)"},
         )
-        filtered_missing_df = missing_df[missing_df["dataset_name"].isin(selected_datasets)].copy()
-        st.dataframe(filtered_missing_df, use_container_width=True, hide_index=True)
-
-
-def render_data_quality_page() -> None:
-    st.header("Qualidade dos Dados")
-
-    quality_summary_file = VALIDATION_OUTPUT_FILES["quality_summary"]
-    quality_results_file = VALIDATION_OUTPUT_FILES["quality_results"]
-    date_gaps_file = VALIDATION_OUTPUT_FILES["date_gaps_detail"]
-
-    stop_if_missing_file(quality_summary_file, "Resumo de qualidade nao encontrado.")
-    stop_if_missing_file(quality_results_file, "Resultados de qualidade nao encontrados.")
-    stop_if_missing_file(date_gaps_file, "Detalhe de gaps de datas nao encontrado.")
-
-    summary = load_quality_summary(str(quality_summary_file))
-    results_df = load_quality_results(str(quality_results_file))
-    gaps_df = load_date_gaps(str(date_gaps_file))
-
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Status geral", summary.get("overall_status", "N/D"))
-    col2.metric("Checks", summary.get("total_checks", 0))
-    col3.metric("PASS", summary.get("pass", 0))
-    col4.metric("WARN", summary.get("warn", 0))
-    col5.metric("FAIL", summary.get("fail", 0))
-
-    st.caption(f"Ultima validacao: {summary.get('generated_at', 'N/D')}")
-
-    st.markdown("---")
-    st.subheader("Checks por status")
-
-    status_df = (
-        results_df.groupby(["status", "severity"], dropna=False)
-        .size()
-        .reset_index(name="checks")
-        .sort_values(["status", "severity"])
-    )
-    st.dataframe(status_df, use_container_width=True, hide_index=True)
-
-    fig = px.bar(
-        status_df,
-        x="status",
-        y="checks",
-        color="severity",
-        title="Distribuicao dos checks de qualidade",
-        labels={"status": "Status", "checks": "Checks", "severity": "Severidade"},
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-    relevant_checks_df = results_df[results_df["status"].isin(["WARN", "FAIL"])].copy()
-    st.subheader("Alertas e falhas")
-    if relevant_checks_df.empty:
-        st.success("Nenhum WARN ou FAIL encontrado.")
-    else:
+        fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
+        fig.update_layout(yaxis_ticksuffix="%", margin=dict(l=10, r=10, t=30, b=10))
+        st.plotly_chart(fig, use_container_width=True)
         st.dataframe(
-            relevant_checks_df[
-                [
-                    "check_id",
-                    "check_category",
-                    "check_name",
-                    "dataset",
-                    "severity",
-                    "status",
-                    "rows_affected",
-                    "details",
-                ]
-            ],
+            returns_df.assign(
+                data_inicial=returns_df["data_inicial"].dt.strftime("%d/%m/%Y"),
+                data_final=returns_df["data_final"].dt.strftime("%d/%m/%Y"),
+                preco_inicial=returns_df["preco_inicial"].round(2),
+                preco_final=returns_df["preco_final"].round(2),
+                retorno_pct=returns_df["retorno_pct"].round(2),
+            ),
             use_container_width=True,
             hide_index=True,
         )
 
-    st.subheader("Gaps de datas")
-    if gaps_df.empty:
-        st.success("Nenhum gap de data encontrado.")
-    else:
-        gaps_summary_df = (
-            gaps_df.groupby(["dataset", "key", "check_name"], dropna=False)
-            .size()
-            .reset_index(name="gaps")
-            .sort_values("gaps", ascending=False)
-        )
-        st.dataframe(gaps_summary_df, use_container_width=True, hide_index=True)
-
-        with st.expander("Detalhe dos gaps"):
-            st.dataframe(gaps_df, use_container_width=True, hide_index=True)
+    st.subheader("Registros por fonte")
+    source_rows = []
+    if not bcb_df.empty:
+        source_rows.append({"fonte": "BCB_SGS", "registros": total_bcb})
+    if not stocks_df.empty:
+        source_rows.append({"fonte": "YAHOO_FINANCE", "registros": total_b3})
+    st.dataframe(pd.DataFrame(source_rows), use_container_width=True, hide_index=True)
 
 
-def render_selic_page(selic_df: pd.DataFrame) -> None:
-    st.header("Selic Diaria")
+def render_selic_page(bcb_df: pd.DataFrame) -> None:
+    st.title("Selic Diaria")
+    selic_df = bcb_df[bcb_df["series_name"] == "selic_daily"].sort_values("reference_date")
+    if selic_df.empty:
+        st.warning("Nao ha serie Selic disponivel em vw_bcb_series_values.")
+        return
 
-    min_date = selic_df["reference_date"].min().date()
-    max_date = selic_df["reference_date"].max().date()
+    period = date_range_filter(selic_df, "Periodo da Selic")
+    filtered = filtered_by_period(selic_df, period)
+    if filtered.empty:
+        st.warning("Nao ha dados de Selic para o periodo selecionado.")
+        return
 
-    selected_range = st.date_input(
-        "Intervalo",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-        key="selic_date_range",
-    )
-    date_range = normalize_date_range(selected_range)
-
-    if date_range is None:
-        st.warning("Selecione data inicial e data final.")
-        st.stop()
-
-    filtered_df = filter_by_date_range(selic_df, "reference_date", date_range[0], date_range[1])
-    stop_if_empty(filtered_df, "Nao ha registros de Selic no intervalo selecionado.")
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Registros", len(filtered_df))
-    col2.metric("Media no periodo", f"{filtered_df['selic_daily_value'].mean():.6f}")
-    col3.metric("Ultimo valor", f"{filtered_df['selic_daily_value'].iloc[-1]:.6f}")
-
-    fig = px.line(
-        filtered_df,
-        x="reference_date",
-        y="selic_daily_value",
-        title="Selic diaria no periodo selecionado",
-        labels={"reference_date": "Data", "selic_daily_value": "Selic diaria"},
-        markers=True,
-    )
-    fig.update_layout(hovermode="x unified", xaxis_title="Data", yaxis_title="Selic diaria")
-
+    fig = px.line(filtered, x="reference_date", y="value", labels={"reference_date": "Data", "value": "Taxa"})
+    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("Tabela completa da Selic"):
-        display_df = filtered_df.copy()
-        display_df["reference_date"] = display_df["reference_date"].dt.strftime("%d/%m/%Y")
-        display_df["selic_daily_value"] = display_df["selic_daily_value"].round(6)
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    table_df = filtered[["reference_date", "value"]].rename(columns={"reference_date": "data", "value": "valor"})
+    table_df["data"] = table_df["data"].dt.strftime("%d/%m/%Y")
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 
-def render_ipca_page(ipca_df: pd.DataFrame) -> None:
-    st.header("IPCA Mensal")
+def render_ipca_page(bcb_df: pd.DataFrame) -> None:
+    st.title("IPCA Mensal")
+    ipca_df = bcb_df[bcb_df["series_name"] == "ipca_monthly"].sort_values("reference_date")
+    if ipca_df.empty:
+        st.warning("Nao ha serie IPCA disponivel em vw_bcb_series_values.")
+        return
 
-    min_date = ipca_df["reference_date"].min().date()
-    max_date = ipca_df["reference_date"].max().date()
+    years = sorted(ipca_df["reference_date"].dt.year.dropna().unique().tolist())
+    selected_year = st.selectbox("Ano", options=years, index=len(years) - 1)
+    filtered = ipca_df[ipca_df["reference_date"].dt.year == selected_year].copy()
+    if filtered.empty:
+        st.warning("Nao ha dados de IPCA para o ano selecionado.")
+        return
 
-    selected_range = st.date_input(
-        "Intervalo",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-        key="ipca_date_range",
-    )
-    date_range = normalize_date_range(selected_range)
-
-    if date_range is None:
-        st.warning("Selecione data inicial e data final.")
-        st.stop()
-
-    filtered_df = filter_by_date_range(ipca_df, "reference_date", date_range[0], date_range[1])
-    stop_if_empty(filtered_df, "Nao ha registros de IPCA no intervalo selecionado.")
-
-    accumulated_ipca = ((filtered_df["ipca_monthly_value"] / 100 + 1).prod() - 1) * 100
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Meses", len(filtered_df))
-    col2.metric("IPCA acumulado", format_pct(float(accumulated_ipca)))
-    col3.metric("Media mensal", format_pct(float(filtered_df["ipca_monthly_value"].mean())))
-
-    fig = px.bar(
-        filtered_df,
-        x="reference_date",
-        y="ipca_monthly_value",
-        text="ipca_monthly_value",
-        title="IPCA mensal no periodo selecionado",
-        labels={"reference_date": "Mes", "ipca_monthly_value": "IPCA mensal (%)"},
-    )
-    fig.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig.update_layout(yaxis_ticksuffix="%", hovermode="x unified", xaxis_title="Mes", yaxis_title="IPCA mensal (%)")
-
+    fig = px.bar(filtered, x="reference_date", y="value", labels={"reference_date": "Mes", "value": "IPCA mensal (%)"})
+    fig.update_layout(yaxis_ticksuffix="%", margin=dict(l=10, r=10, t=30, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("Tabela completa do IPCA"):
-        display_df = filtered_df.copy()
-        display_df["reference_date"] = display_df["reference_date"].dt.strftime("%d/%m/%Y")
-        display_df["ipca_monthly_value"] = display_df["ipca_monthly_value"].round(2)
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    table_df = filtered[["reference_date", "value"]].rename(columns={"reference_date": "data", "value": "valor"})
+    table_df["data"] = table_df["data"].dt.strftime("%d/%m/%Y")
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 
-def render_stocks_page(stocks_df: pd.DataFrame) -> None:
-    st.header("Cotacoes B3")
+def render_b3_page(stocks_df: pd.DataFrame) -> None:
+    st.title("Cotacoes B3")
+    if stocks_df.empty:
+        st.warning("Nao ha cotacoes disponiveis em vw_b3_stock_prices.")
+        return
 
-    available_tickers = sorted(stocks_df["ticker"].unique().tolist())
-    selected_tickers = st.multiselect("Tickers", options=available_tickers, default=available_tickers)
+    tickers = ["PETR4.SA", "VALE3.SA", "ITUB4.SA", "^BVSP"]
+    stocks_df = stocks_df[stocks_df["ticker"].isin(tickers)].sort_values(["ticker", "reference_date"])
+    if stocks_df.empty:
+        st.warning("Nao ha dados para os tickers esperados.")
+        return
 
-    if not selected_tickers:
-        st.warning("Selecione pelo menos um ticker.")
-        st.stop()
-
-    min_date = stocks_df["reference_date"].min().date()
-    max_date = stocks_df["reference_date"].max().date()
-
-    selected_range = st.date_input(
-        "Intervalo",
-        value=(min_date, max_date),
-        min_value=min_date,
-        max_value=max_date,
-        key="stocks_date_range",
-    )
-    date_range = normalize_date_range(selected_range)
-
-    if date_range is None:
-        st.warning("Selecione data inicial e data final.")
-        st.stop()
-
-    filtered_df = stocks_df[stocks_df["ticker"].isin(selected_tickers)].copy()
-    filtered_df = filter_by_date_range(filtered_df, "reference_date", date_range[0], date_range[1])
-    stop_if_empty(filtered_df, "Nao ha cotacoes B3 no intervalo selecionado.")
-
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Registros", len(filtered_df))
-    col2.metric("Tickers selecionados", filtered_df["ticker"].nunique())
-    col3.metric("Volume total", format_number(int(filtered_df["volume"].sum()), 0))
-    col4.metric("Preco medio fechamento", f"R$ {format_number(float(filtered_df['close_price'].mean()), 2)}")
+    period = date_range_filter(stocks_df, "Periodo das cotacoes")
+    filtered = filtered_by_period(stocks_df, period)
+    if filtered.empty:
+        st.warning("Nao ha cotacoes para o periodo selecionado.")
+        return
 
     fig = px.line(
-        filtered_df.sort_values(["ticker", "reference_date"]),
+        filtered,
         x="reference_date",
-        y="close_price",
+        y="adjusted_close_price",
         color="ticker",
-        title="Fechamento diario comparado",
-        labels={"reference_date": "Data", "close_price": "Preco de fechamento", "ticker": "Ticker"},
-        markers=True,
+        labels={"reference_date": "Data", "adjusted_close_price": "Preco ajustado", "ticker": "Ticker"},
     )
-    fig.update_layout(hovermode="x unified", xaxis_title="Data", yaxis_title="Preco de fechamento", legend_title_text="Ticker")
-
+    fig.update_layout(margin=dict(l=10, r=10, t=30, b=10))
     st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Retorno por ticker")
-    returns_df = calculate_stock_returns(filtered_df)
-    stop_if_empty(returns_df, "Nao ha dados suficientes para calcular retorno no intervalo selecionado.")
-
-    fig_returns = px.bar(
-        returns_df,
-        x="ticker",
-        y="retorno_pct",
-        text="retorno_pct",
-        title="Retorno percentual no intervalo selecionado",
-        labels={"ticker": "Ticker", "retorno_pct": "Retorno (%)"},
+    selected_ticker = st.selectbox("Ticker da tabela OHLCV", options=tickers)
+    table_df = filtered[filtered["ticker"] == selected_ticker][
+        [
+            "reference_date",
+            "ticker",
+            "open_price",
+            "high_price",
+            "low_price",
+            "close_price",
+            "adjusted_close_price",
+            "volume",
+        ]
+    ].rename(
+        columns={
+            "reference_date": "data",
+            "open_price": "abertura",
+            "high_price": "maxima",
+            "low_price": "minima",
+            "close_price": "fechamento",
+            "adjusted_close_price": "fechamento_ajustado",
+        }
     )
-    fig_returns.update_traces(texttemplate="%{text:.2f}%", textposition="outside")
-    fig_returns.update_layout(yaxis_ticksuffix="%")
-
-    st.plotly_chart(fig_returns, use_container_width=True)
-
-    with st.expander("Tabela completa de cotacoes"):
-        display_df = filtered_df.copy()
-        display_df["reference_date"] = display_df["reference_date"].dt.strftime("%d/%m/%Y")
-
-        for column in ["open_price", "high_price", "low_price", "close_price", "adjusted_close_price"]:
-            display_df[column] = display_df[column].round(2)
-
-        st.dataframe(display_df, use_container_width=True, hide_index=True)
+    table_df["data"] = table_df["data"].dt.strftime("%d/%m/%Y")
+    st.dataframe(table_df, use_container_width=True, hide_index=True)
 
 
 def main() -> None:
-    validate_database_exists(PROCESSED_DB_FILE)
+    st.sidebar.title("Navegacao")
+    page = st.sidebar.radio("Pagina", PAGES)
+    st.sidebar.caption(f"Banco: {DATABASE_FILE.relative_to(PROJECT_ROOT)}")
 
-    database_path = str(PROCESSED_DB_FILE)
-    bcb_series_df = load_bcb_series_data(database_path)
-    selic_df = load_selic_data(database_path)
-    ipca_df = load_ipca_data(database_path)
-    stocks_df = load_stock_data(database_path)
-
-    stop_if_empty(bcb_series_df, "Nao ha series BCB no banco final.")
-    stop_if_empty(selic_df, "Nao ha dados de Selic no banco final.")
-    stop_if_empty(ipca_df, "Nao ha dados de IPCA no banco final.")
-    stop_if_empty(stocks_df, "Nao ha cotacoes B3 no banco final.")
-
-    render_header()
-    page = render_sidebar()
+    bcb_df = load_bcb_series()
+    stocks_df = load_b3_prices()
+    latest_run_df = load_latest_run()
 
     if page == "Resumo Executivo":
-        render_executive_summary(bcb_series_df, selic_df, ipca_df, stocks_df)
-    elif page == "Status do Pipeline":
-        render_pipeline_status_page(bcb_series_df, selic_df, ipca_df, stocks_df)
-    elif page == "Rastreabilidade":
-        render_traceability_page(database_path)
-    elif page == "Reconciliacao":
-        render_reconciliation_page()
-    elif page == "Qualidade dos Dados":
-        render_data_quality_page()
-    elif page == "Cobertura Historica":
-        render_historical_coverage_page(bcb_series_df, stocks_df)
-    elif page == "Fundos CVM":
-        render_cvm_funds_page(database_path)
-    elif page == "Benchmarks":
-        render_benchmarks_page(bcb_series_df, stocks_df)
-    elif page == "Performance & Benchmarks":
-        render_performance_benchmarks_page(stocks_df, ipca_df)
-    elif page == "Risco & Correlacao":
-        render_risk_correlation_page(stocks_df)
-    elif page == "Alertas Operacionais":
-        render_operational_alerts_page()
+        render_executive_summary(bcb_df, stocks_df, latest_run_df)
     elif page == "Selic Diaria":
-        render_selic_page(selic_df)
+        render_selic_page(bcb_df)
     elif page == "IPCA Mensal":
-        render_ipca_page(ipca_df)
+        render_ipca_page(bcb_df)
     elif page == "Cotacoes B3":
-        render_stocks_page(stocks_df)
+        render_b3_page(stocks_df)
 
 
 if __name__ == "__main__":
