@@ -44,6 +44,7 @@ jobs:
           python -m py_compile src/validation/reconciliation.py
           python -m py_compile src/storage/database.py
           python -m py_compile src/source_availability.py
+          python -m py_compile src/artifact_retention.py
 
       - name: Run offline tests
         run: |
@@ -54,3 +55,4 @@ jobs:
           python tests/test_module_09_institutional_sources.py
           python tests/test_module_10_traceability_reconciliation_versioning.py
           python tests/test_module_11_source_availability.py
+          python tests/test_module_12_artifact_retention.py

@@ -23,6 +23,14 @@ By run:
 - `reports/reconciliation/runs/{run_id}.csv`
 - `reports/reconciliation/runs/{run_id}.json`
 
+Daily:
+
+- `reports/reconciliation/daily/YYYYMMDD.md`
+- `reports/reconciliation/daily/YYYYMMDD.csv`
+- `reports/reconciliation/daily/YYYYMMDD.json`
+
+The default mode writes `latest.*` and overwrites the same daily file throughout the day. `runs/{run_id}.*` is created only with `--archive-runs`.
+
 ## Check Status
 
 - `PASSED`: check succeeded.

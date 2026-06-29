@@ -12,10 +12,14 @@ from typing import Any
 
 import pandas as pd
 
+from artifact_retention import prune_artifacts, today_stamp
 from config import PROJECT_ROOT
 
-MANIFEST_RUNS_DIR = PROJECT_ROOT / "data" / "manifests" / "runs"
-MANIFEST_DATASETS_DIR = PROJECT_ROOT / "data" / "manifests" / "datasets"
+MANIFEST_DIR = PROJECT_ROOT / "data" / "manifests"
+MANIFEST_LATEST_FILE = MANIFEST_DIR / "latest.json"
+MANIFEST_DAILY_DIR = MANIFEST_DIR / "daily"
+MANIFEST_RUNS_DIR = MANIFEST_DIR / "runs"
+MANIFEST_DATASETS_DIR = MANIFEST_DIR / "datasets"
 
 
 def now_text() -> str:
@@ -120,14 +124,44 @@ def manifest_path_for_run(run_id: str, directory: Path = MANIFEST_RUNS_DIR) -> P
     return directory / f"{run_id}.json"
 
 
-def write_run_manifest(manifest: dict[str, Any], path: Path | None = None) -> Path:
-    MANIFEST_RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    MANIFEST_DATASETS_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = path or manifest_path_for_run(str(manifest["run_id"]))
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as file:
-        json.dump(manifest, file, ensure_ascii=False, indent=4)
-    return output_path
+def manifest_path_for_day(stamp: str | None = None, directory: Path = MANIFEST_DAILY_DIR) -> Path:
+    return directory / f"{stamp or today_stamp()}.json"
+
+
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as file:
+        json.dump(payload, file, ensure_ascii=False, indent=4)
+
+
+def write_run_manifest(
+    manifest: dict[str, Any],
+    path: Path | None = None,
+    archive_runs: bool = False,
+    retention_days: int | None = None,
+    base_dir: Path | None = None,
+) -> Path:
+    if path is not None:
+        _write_json(path, manifest)
+        return path
+
+    manifest_dir = Path(base_dir) if base_dir else MANIFEST_DIR
+    latest_path = manifest_dir / "latest.json"
+    daily_dir = manifest_dir / "daily"
+    runs_dir = manifest_dir / "runs"
+    datasets_dir = manifest_dir / "datasets"
+
+    for directory in [daily_dir, datasets_dir]:
+        directory.mkdir(parents=True, exist_ok=True)
+
+    _write_json(latest_path, manifest)
+    _write_json(manifest_path_for_day(directory=daily_dir), manifest)
+
+    if archive_runs:
+        _write_json(manifest_path_for_run(str(manifest["run_id"]), directory=runs_dir), manifest)
+
+    prune_artifacts([daily_dir, runs_dir], retention_days=retention_days)
+    return latest_path
 
 
 def load_run_manifest(path: Path) -> dict[str, Any]:
@@ -135,10 +169,14 @@ def load_run_manifest(path: Path) -> dict[str, Any]:
         return json.load(file)
 
 
-def load_latest_manifest(directory: Path = MANIFEST_RUNS_DIR) -> dict[str, Any] | None:
-    if not directory.exists():
+def load_latest_manifest(directory: Path = MANIFEST_DIR) -> dict[str, Any] | None:
+    latest_path = Path(directory) / "latest.json"
+    if latest_path.exists():
+        return load_run_manifest(latest_path)
+    runs_directory = Path(directory) / "runs" if Path(directory).name != "runs" else Path(directory)
+    if not runs_directory.exists():
         return None
-    manifests = sorted(directory.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+    manifests = sorted(runs_directory.glob("*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
     if not manifests:
         return None
     return load_run_manifest(manifests[0])

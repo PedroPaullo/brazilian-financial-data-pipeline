@@ -48,6 +48,8 @@ def parse_args():
     parser.add_argument("--run-id", default=None)
     parser.add_argument("--database-backend", default="sqlite", choices=["sqlite", "postgres"])
     parser.add_argument("--database-url", default=None)
+    parser.add_argument("--archive-runs", action="store_true")
+    parser.add_argument("--retention-days", type=int, default=None)
     parser.add_argument(
         "--modules",
         nargs="+",
@@ -81,6 +83,9 @@ def _command_for_step(step: str, args) -> list[str]:
             collect_command.extend(["--cvm-year-month", args.cvm_year_month])
         if args.cvm_top_n is not None:
             collect_command.extend(["--cvm-top-n", str(args.cvm_top_n)])
+    retention_days = getattr(args, "retention_days", None)
+    if retention_days is not None:
+        collect_command.extend(["--retention-days", str(retention_days)])
 
     commands = {
         "collect": collect_command,
@@ -148,6 +153,8 @@ def run_pipeline(args) -> int:
     trace_run_id = args.run_id or create_run_id("pipeline")
     manifest_path = None
     run_id = None
+    archive_runs = bool(getattr(args, "archive_runs", False))
+    retention_days = getattr(args, "retention_days", None)
     if args.database_backend == "postgres":
         create_engine_or_connection(args.database_backend, args.database_url)
     else:
@@ -155,20 +162,26 @@ def run_pipeline(args) -> int:
 
     if args.reconcile_only:
         manifest = _build_manifest(args, trace_run_id, status="RECONCILE_ONLY")
-        manifest_path = write_run_manifest(manifest)
+        manifest_path = write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
         register_etl_run(manifest)
-        result = reconcile(trace_run_id, command=" ".join(sys.argv), manifest_path=manifest_path)
+        result = reconcile(
+            trace_run_id,
+            command=" ".join(sys.argv),
+            manifest_path=manifest_path,
+            archive_runs=archive_runs,
+            retention_days=retention_days,
+        )
         manifest["status"] = result["overall_status"]
         manifest["finished_at"] = now_text()
         manifest["datasets_created"] = result["dataset_versions"]
-        manifest_path = write_run_manifest(manifest)
+        manifest_path = write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
         register_etl_run(manifest)
         logger.info("Reconciliacao concluida: %s", result["overall_status"])
         return 0 if result["overall_status"] in {"PASSED", "WARNING"} else 1
 
     if args.enable_manifest or args.reconcile:
         manifest = _build_manifest(args, trace_run_id, status="RUNNING")
-        manifest_path = write_run_manifest(manifest)
+        manifest_path = write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
         register_etl_run(manifest)
 
     run_id = start_pipeline_run("run_pipeline")
@@ -189,15 +202,21 @@ def run_pipeline(args) -> int:
         finish_pipeline_run(run_id, "SUCCESS", errors_count=0)
         if args.enable_manifest or args.reconcile:
             manifest = _build_manifest(args, trace_run_id, status="SUCCESS")
-            manifest_path = write_run_manifest(manifest)
+            manifest_path = write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
 
         if args.reconcile:
-            result = reconcile(trace_run_id, command=" ".join(sys.argv), manifest_path=manifest_path)
+            result = reconcile(
+                trace_run_id,
+                command=" ".join(sys.argv),
+                manifest_path=manifest_path,
+                archive_runs=archive_runs,
+                retention_days=retention_days,
+            )
             manifest = _build_manifest(args, trace_run_id, status=result["overall_status"])
             manifest["datasets_created"] = result["dataset_versions"]
             manifest["finished_at"] = now_text()
-            manifest_path = write_run_manifest(manifest)
+            manifest_path = write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
             logger.info("Reconciliacao concluida: %s", result["overall_status"])
             if result["overall_status"] == "FAILED":
@@ -210,7 +229,7 @@ def run_pipeline(args) -> int:
             finish_pipeline_run(run_id, "FAILED", errors_count=1, error_message=str(exc))
         if args.enable_manifest or args.reconcile:
             manifest = _build_manifest(args, trace_run_id, status="FAILED", errors=[str(exc)])
-            write_run_manifest(manifest)
+            write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
         logger.error("run_pipeline falhou na etapa: %s", exc)
         return 1
@@ -219,7 +238,7 @@ def run_pipeline(args) -> int:
             finish_pipeline_run(run_id, "FAILED", errors_count=1, error_message=str(exc))
         if args.enable_manifest or args.reconcile:
             manifest = _build_manifest(args, trace_run_id, status="FAILED", errors=[str(exc)])
-            write_run_manifest(manifest)
+            write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
         logger.error("run_pipeline falhou: %s", exc)
         return 1

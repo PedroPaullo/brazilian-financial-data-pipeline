@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from config import BCB_SERIES, COLLECTION_REPORT_DIR, COLLECTION_STATUS_JSON_FILE, COLLECTION_STATUS_MD_FILE, DEFAULT_B3_TICKERS, OUTPUT_FILES
+from artifact_retention import prune_artifacts, today_stamp
+from config import BCB_SERIES, COLLECTION_DAILY_DIR, COLLECTION_REPORT_DIR, COLLECTION_STATUS_JSON_FILE, COLLECTION_STATUS_MD_FILE, DEFAULT_B3_TICKERS, OUTPUT_FILES
 from logger import get_logger
 from monitoring import finish_pipeline_run, start_pipeline_run
 
@@ -23,16 +24,17 @@ def parse_args():
     parser.add_argument("--include-cvm", action="store_true")
     parser.add_argument("--cvm-year-month", default=None)
     parser.add_argument("--cvm-top-n", type=int, default=None)
+    parser.add_argument("--retention-days", type=int, default=None)
     return parser.parse_args()
 
 
-def _write_collection_status_report(status_report: dict) -> None:
+def _write_collection_status_report(status_report: dict, retention_days: int | None = None) -> None:
     COLLECTION_REPORT_DIR.mkdir(parents=True, exist_ok=True)
+    COLLECTION_DAILY_DIR.mkdir(parents=True, exist_ok=True)
 
-    COLLECTION_STATUS_JSON_FILE.write_text(
-        json.dumps(status_report, ensure_ascii=False, indent=2, default=str),
-        encoding="utf-8",
-    )
+    json_text = json.dumps(status_report, ensure_ascii=False, indent=2, default=str)
+    COLLECTION_STATUS_JSON_FILE.write_text(json_text, encoding="utf-8")
+    (COLLECTION_DAILY_DIR / f"{today_stamp()}_collection_status.json").write_text(json_text, encoding="utf-8")
 
     bcb_lines = []
     for item in status_report.get("bcb_series", []):
@@ -78,7 +80,10 @@ def _write_collection_status_report(status_report: dict) -> None:
         "",
     ]
 
-    COLLECTION_STATUS_MD_FILE.write_text("\n".join(md), encoding="utf-8")
+    markdown_text = "\n".join(md)
+    COLLECTION_STATUS_MD_FILE.write_text(markdown_text, encoding="utf-8")
+    (COLLECTION_DAILY_DIR / f"{today_stamp()}_collection_status.md").write_text(markdown_text, encoding="utf-8")
+    prune_artifacts([COLLECTION_DAILY_DIR], retention_days=retention_days)
 
 
 def main():
@@ -178,7 +183,7 @@ def main():
             "cvm": cvm_result,
         }
 
-        _write_collection_status_report(status_report)
+        _write_collection_status_report(status_report, retention_days=args.retention_days)
 
         finish_pipeline_run(
             run_id,

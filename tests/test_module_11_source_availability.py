@@ -216,6 +216,8 @@ def test_skip_collection_does_not_collect():
         run_id=None,
         database_backend="sqlite",
         database_url=None,
+        archive_runs=False,
+        retention_days=None,
         modules=None,
     )
     calls = []

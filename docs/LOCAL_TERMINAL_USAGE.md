@@ -44,6 +44,36 @@ python run_pipeline.py --skip-collection --enable-manifest --reconcile
 python run_pipeline.py --reconcile-only
 ```
 
+Archive every run only when needed:
+
+```powershell
+python run_pipeline.py --skip-collection --enable-manifest --reconcile --archive-runs
+python run_pipeline.py --reconcile-only --archive-runs
+```
+
+Artifact policy:
+
+- `latest.*` is always the most recent state.
+- `daily/YYYYMMDD.*` is overwritten throughout the same day.
+- `runs/<run_id>.*` is created only when `--archive-runs` is used.
+- `--retention-days 30` or `PIPELINE_RETENTION_DAYS=30` removes old files from `daily/` and `runs/`.
+- Retention never removes `latest.*`, raw data files, SQLite databases, or Excel reports.
+
+Generated DBs, Excel files, manifests and report artifacts are local execution outputs and should not be committed.
+
+Safe ignored-artifact cleanup preview:
+
+```powershell
+git status --short
+git clean -ndX
+```
+
+Only after reviewing the preview:
+
+```powershell
+git clean -fdX
+```
+
 Run historical backfill collection:
 
 ```powershell

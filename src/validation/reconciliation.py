@@ -13,6 +13,7 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from artifact_retention import prune_artifacts, today_stamp
 from config import (
     BCB_SERIES,
     COLLECTION_STATUS_JSON_FILE,
@@ -35,6 +36,7 @@ from source_availability import (
 )
 
 REPORT_DIR = PROJECT_ROOT / "reports" / "reconciliation"
+REPORT_DAILY_DIR = REPORT_DIR / "daily"
 REPORT_RUNS_DIR = REPORT_DIR / "runs"
 
 
@@ -308,10 +310,19 @@ def _overall_status(checks: list[dict[str, Any]]) -> str:
     return "PASSED"
 
 
-def _write_reports(run_id: str, checks: list[dict[str, Any]], command: str, git_commit: str, report_dir: Path = REPORT_DIR) -> dict[str, Path]:
+def _write_reports(
+    run_id: str,
+    checks: list[dict[str, Any]],
+    command: str,
+    git_commit: str,
+    report_dir: Path = REPORT_DIR,
+    archive_runs: bool = False,
+    retention_days: int | None = None,
+) -> dict[str, Path]:
+    report_daily_dir = report_dir / "daily"
     report_runs_dir = report_dir / "runs"
     report_dir.mkdir(parents=True, exist_ok=True)
-    report_runs_dir.mkdir(parents=True, exist_ok=True)
+    report_daily_dir.mkdir(parents=True, exist_ok=True)
     checks_df = pd.DataFrame(checks)
     summary = {
         "run_id": run_id,
@@ -327,14 +338,24 @@ def _write_reports(run_id: str, checks: list[dict[str, Any]], command: str, git_
         "latest_json": report_dir / "latest.json",
         "latest_csv": report_dir / "latest.csv",
         "latest_md": report_dir / "latest.md",
-        "run_json": report_runs_dir / f"{run_id}.json",
-        "run_csv": report_runs_dir / f"{run_id}.csv",
-        "run_md": report_runs_dir / f"{run_id}.md",
+        "daily_json": report_daily_dir / f"{today_stamp()}.json",
+        "daily_csv": report_daily_dir / f"{today_stamp()}.csv",
+        "daily_md": report_daily_dir / f"{today_stamp()}.md",
     }
-    for path in [paths["latest_json"], paths["run_json"]]:
+    if archive_runs:
+        report_runs_dir.mkdir(parents=True, exist_ok=True)
+        paths.update(
+            {
+                "run_json": report_runs_dir / f"{run_id}.json",
+                "run_csv": report_runs_dir / f"{run_id}.csv",
+                "run_md": report_runs_dir / f"{run_id}.md",
+            }
+        )
+
+    for path in [paths["latest_json"], paths["daily_json"]] + ([paths["run_json"]] if archive_runs else []):
         with open(path, "w", encoding="utf-8") as file:
             json.dump({"summary": summary, "checks": checks}, file, ensure_ascii=False, indent=4)
-    for path in [paths["latest_csv"], paths["run_csv"]]:
+    for path in [paths["latest_csv"], paths["daily_csv"]] + ([paths["run_csv"]] if archive_runs else []):
         checks_df.to_csv(path, index=False, encoding="utf-8")
 
     failures = checks_df[checks_df["status"] == "FAILED"] if not checks_df.empty else pd.DataFrame()
@@ -365,8 +386,9 @@ def _write_reports(run_id: str, checks: list[dict[str, Any]], command: str, git_
             "- Historical coverage for more than 2024 depends on executing and validating the real backfill.",
         ]
     )
-    for path in [paths["latest_md"], paths["run_md"]]:
+    for path in [paths["latest_md"], paths["daily_md"]] + ([paths["run_md"]] if archive_runs else []):
         path.write_text("\n".join(markdown), encoding="utf-8")
+    prune_artifacts([report_daily_dir, report_runs_dir], retention_days=retention_days)
     return paths
 
 
@@ -376,9 +398,19 @@ def reconcile(
     manifest_path: Path | None = None,
     database_file: Path = PROCESSED_DB_FILE,
     report_dir: Path = REPORT_DIR,
+    archive_runs: bool = False,
+    retention_days: int | None = None,
 ) -> dict[str, Any]:
     checks, dataset_versions = run_reconciliation(run_id, command=command, manifest_path=manifest_path, database_file=database_file)
-    report_paths = _write_reports(run_id, checks, command, get_git_commit(), report_dir=report_dir)
+    report_paths = _write_reports(
+        run_id,
+        checks,
+        command,
+        get_git_commit(),
+        report_dir=report_dir,
+        archive_runs=archive_runs,
+        retention_days=retention_days,
+    )
     return {
         "run_id": run_id,
         "overall_status": _overall_status(checks),
@@ -392,12 +424,20 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--manifest-path", default=None)
+    parser.add_argument("--archive-runs", action="store_true")
+    parser.add_argument("--retention-days", type=int, default=None)
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    result = reconcile(args.run_id, command=" ".join(sys.argv), manifest_path=Path(args.manifest_path) if args.manifest_path else None)
+    result = reconcile(
+        args.run_id,
+        command=" ".join(sys.argv),
+        manifest_path=Path(args.manifest_path) if args.manifest_path else None,
+        archive_runs=args.archive_runs,
+        retention_days=args.retention_days,
+    )
     print(json.dumps({"run_id": result["run_id"], "overall_status": result["overall_status"]}, ensure_ascii=False))
 
 

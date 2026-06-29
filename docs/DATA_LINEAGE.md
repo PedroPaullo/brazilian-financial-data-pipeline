@@ -17,8 +17,12 @@ Example:
 Run manifests are JSON files under:
 
 ```text
-data/manifests/runs/
+data/manifests/latest.json
+data/manifests/daily/YYYYMMDD.json
+data/manifests/runs/<run_id>.json
 ```
+
+`latest.json` is always overwritten with the most recent execution. `daily/YYYYMMDD.json` is overwritten during the same day. `runs/<run_id>.json` is created only when `--archive-runs` is used.
 
 Each manifest records command, parameters, backend, enabled/skipped sources, inputs, outputs, checksums, date range, warnings and errors.
 
