@@ -157,6 +157,32 @@ Teste uma execução imediata do scheduler:
 python .\src\scheduler.py --run-now
 ```
 
+## API REST
+
+O projeto também expõe a camada de inteligência financeira por uma API REST com FastAPI.
+
+Inicie a API localmente:
+
+```powershell
+uvicorn src.api:app --reload
+```
+
+A documentação interativa fica disponível em:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+Principais endpoints:
+
+- `GET /health`
+- `GET /indicators/latest`
+- `GET /assets/returns`
+- `GET /data/freshness`
+- `GET /pipeline/health`
+- `GET /sources/availability`
+- `GET /indicators/macro/monthly`
+
 ## Diferenciais
 
 - Controle `NOT_YET_AVAILABLE`: o pipeline não trata dado ausente como sucesso quando a fonte ainda não publicou a série.
