@@ -6,6 +6,12 @@
 
 Pipeline executivo para coleta, validação, armazenamento, reconciliação e reporte de dados financeiros brasileiros.
 
+## Documentação
+
+- [Visão de produto para recrutadores e gestores](docs/product.md)
+- [Arquitetura do pipeline com diagrama](docs/architecture.md)
+- [Cobertura de testes](docs/TEST_COVERAGE.md)
+
 ## Problema
 
 Dados financeiros brasileiros relevantes para análise de mercado ficam espalhados em fontes diferentes, com calendários de publicação distintos, falhas temporárias e formatos inconsistentes. Analistas de dados e times financeiros precisam consolidar Selic, IPCA, CDI, PTAX e ativos da B3 com rastreabilidade suficiente para tomada de decisão, auditoria e comunicação executiva.
@@ -15,6 +21,35 @@ Dados financeiros brasileiros relevantes para análise de mercado ficam espalhad
 O pipeline automatiza o fluxo de ponta a ponta: coleta dados públicos, valida qualidade, armazena em SQLite normalizado, mede cobertura histórica, gera alertas, reconcilia artefatos e entrega um relatório Excel pronto para consumo.
 
 Arquitetura resumida: coleta → validação → armazenamento → relatório.
+
+```mermaid
+flowchart LR
+    BCB["BCB/SGS<br/>Selic, IPCA, CDI, PTAX"]
+    YF["Yahoo Finance<br/>PETR4, VALE3, ITUB4, Ibovespa"]
+    CVM["CVM<br/>fundos opcionais"]
+    SCHED["Scheduler<br/>dias uteis 07:00"]
+
+    COLLECT["Collection<br/>collect_data.py"]
+    VALIDATE["Validation<br/>quality checks"]
+    LOAD["Load<br/>load_processed_data.py"]
+    STORE["Storage<br/>SQLite / PostgreSQL"]
+    INTEL["Intelligence Views<br/>views analiticas"]
+    REPORT["Report<br/>Excel"]
+    DASH["Dashboard<br/>Streamlit"]
+    MANIFEST["Manifest + Reconciliation<br/>auditoria pos-carga"]
+
+    BCB --> COLLECT
+    YF --> COLLECT
+    CVM --> COLLECT
+    SCHED -. aciona automaticamente .-> COLLECT
+    COLLECT --> VALIDATE
+    VALIDATE --> LOAD
+    LOAD --> STORE
+    LOAD -. registra e confere .-> MANIFEST
+    STORE --> INTEL
+    INTEL --> REPORT
+    INTEL --> DASH
+```
 
 ## Resultados Reais
 
