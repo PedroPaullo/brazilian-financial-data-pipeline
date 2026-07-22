@@ -138,3 +138,36 @@ def test_api_data_endpoints_return_503_when_database_is_missing(monkeypatch):
 
         assert response.status_code == 503
         assert "Banco processado nao encontrado" in response.json()["detail"]
+
+
+def test_api_all_data_endpoints_return_503_when_database_is_missing(monkeypatch):
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_name:
+        monkeypatch.setattr(api, "DATABASE_FILE", Path(temp_name) / "missing.db")
+        client = TestClient(api.app)
+
+        for endpoint in DATA_ENDPOINTS:
+            response = client.get(endpoint)
+            assert response.status_code == 503, endpoint
+            assert "detail" in response.json(), endpoint
+
+
+def test_api_data_endpoints_return_empty_lists_for_empty_views(monkeypatch):
+    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_name:
+        database_file = Path(temp_name) / "empty.db"
+        _create_api_database(database_file)
+        with sqlite3.connect(database_file) as conn:
+            conn.execute("DELETE FROM fact_bcb_series_values")
+            conn.execute("DELETE FROM fact_b3_stock_prices")
+            conn.commit()
+        load_intelligence_views(database_file)
+        monkeypatch.setattr(api, "DATABASE_FILE", database_file)
+        client = TestClient(api.app)
+
+        for endpoint in DATA_ENDPOINTS:
+            response = client.get(endpoint)
+            assert response.status_code == 200, endpoint
+            assert isinstance(response.json(), list), endpoint
+            if endpoint != "/pipeline/health":
+                assert response.json() == [], endpoint
+            else:
+                assert response.json()[0]["overall_status"] == "FAILED"
