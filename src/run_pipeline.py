@@ -158,6 +158,14 @@ def _prepare_database_backend(args) -> None:
     logger.info("backend: %s", args.database_backend)
 
 
+def _emit_failure_alerts() -> None:
+    try:
+        alerts = generate_operational_alerts()
+        logger.info("Alertas de falha gerados: %s", len(alerts))
+    except Exception as alert_exc:
+        logger.exception("Nao foi possivel gerar alertas apos falha do pipeline: %s", alert_exc)
+
+
 def run_pipeline(args) -> int:
     trace_run_id = args.run_id or create_run_id("pipeline")
     manifest_path = None
@@ -243,6 +251,7 @@ def run_pipeline(args) -> int:
             manifest = _build_manifest(args, trace_run_id, status="FAILED", errors=[str(exc)])
             write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
+        _emit_failure_alerts()
         logger.error("run_pipeline falhou na etapa: %s", exc)
         return 1
     except Exception as exc:
@@ -252,6 +261,7 @@ def run_pipeline(args) -> int:
             manifest = _build_manifest(args, trace_run_id, status="FAILED", errors=[str(exc)])
             write_run_manifest(manifest, archive_runs=archive_runs, retention_days=retention_days)
             register_etl_run(manifest)
+        _emit_failure_alerts()
         logger.error("run_pipeline falhou: %s", exc)
         return 1
 
