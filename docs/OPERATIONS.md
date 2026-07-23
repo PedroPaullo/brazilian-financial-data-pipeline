@@ -98,6 +98,19 @@ Alerts are written to:
 
 Coverage warnings and critical gaps are also included in operational alerts.
 
+## Notificacoes por Gmail
+
+Os alertas `WARNING` e `CRITICAL` podem ser enviados por Gmail SMTP. O envio
+fica desativado por padrao e usa uma senha de aplicativo, nunca a senha normal
+da conta. Configure as variaveis `ALERT_EMAIL_*` no ambiente local ou no
+gerenciador de secrets da execucao, habilite `ALERT_EMAIL_ENABLED=true` e
+execute o pipeline; o arquivo `reports/operations/notification_state.json`
+mantem fingerprints dos alertas enviados para evitar duplicidade.
+
+O sistema continua gravando `alerts.json` e `alerts.csv` mesmo quando o envio
+esta desabilitado ou indisponivel. Assim, a entrega externa e um canal de
+notificacao, nao a fonte de verdade operacional.
+
 Alert severities:
 
 - `INFO`: informational status.

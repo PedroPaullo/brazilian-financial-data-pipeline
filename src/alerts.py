@@ -23,6 +23,7 @@ from config import (
 )
 from logger import get_logger
 from monitoring import record_data_artifact
+from notifications import send_new_alert_notifications
 
 logger = get_logger(__name__)
 
@@ -190,6 +191,22 @@ def generate_operational_alerts(
     with open(alerts_json_file, "w", encoding="utf-8") as file:
         json.dump(alerts, file, ensure_ascii=False, indent=4)
     pd.DataFrame(alerts).to_csv(alerts_csv_file, index=False, encoding="utf-8")
+
+    try:
+        notification_result = send_new_alert_notifications(alerts)
+        logger.info("Notificacao operacional: %s", notification_result)
+    except Exception as exc:
+        _alert(
+            alerts,
+            "CRITICAL",
+            "notification_delivery",
+            "gmail",
+            "alerts",
+            f"Falha ao enviar notificacao operacional: {exc}",
+            "Verifique as variaveis ALERT_EMAIL_* e a senha de aplicativo do Gmail.",
+        )
+        pd.DataFrame(alerts).to_csv(alerts_csv_file, index=False, encoding="utf-8")
+        logger.exception("Falha na entrega de notificacao operacional.")
 
     record_data_artifact("alerts_json", alerts_json_file, "operational_alerts", len(alerts), details="Operational alerts JSON")
     record_data_artifact("alerts_csv", alerts_csv_file, "operational_alerts", len(alerts), details="Operational alerts CSV")

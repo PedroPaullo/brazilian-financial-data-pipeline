@@ -2,6 +2,8 @@
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+import os
+
 RAW_DATA_DIR = PROJECT_ROOT / "data" / "raw"
 RAW_BCB_DIR = RAW_DATA_DIR / "bcb"
 RAW_B3_DIR = RAW_DATA_DIR / "b3"
@@ -53,6 +55,13 @@ COLLECTION_STATUS_MD_FILE = COLLECTION_REPORT_DIR / "latest_collection_status.md
 OPERATIONS_REPORT_DIR = REPORTS_DIR / "operations"
 ALERTS_JSON_FILE = OPERATIONS_REPORT_DIR / "alerts.json"
 ALERTS_CSV_FILE = OPERATIONS_REPORT_DIR / "alerts.csv"
+ALERT_NOTIFICATION_STATE_FILE = OPERATIONS_REPORT_DIR / "notification_state.json"
+ALERT_EMAIL_ENABLED = os.getenv("ALERT_EMAIL_ENABLED", "false").lower() == "true"
+ALERT_EMAIL_HOST = os.getenv("ALERT_EMAIL_HOST", "smtp.gmail.com")
+ALERT_EMAIL_PORT = int(os.getenv("ALERT_EMAIL_PORT", "587"))
+ALERT_EMAIL_SENDER = os.getenv("ALERT_EMAIL_SENDER", "")
+ALERT_EMAIL_RECIPIENT = os.getenv("ALERT_EMAIL_RECIPIENT", "")
+ALERT_EMAIL_APP_PASSWORD = os.getenv("ALERT_EMAIL_APP_PASSWORD", "")
 
 COVERAGE_REPORT_DIR = REPORTS_DIR / "coverage"
 COVERAGE_REPORT_FILE = COVERAGE_REPORT_DIR / "data_coverage_report.csv"
