@@ -111,6 +111,23 @@ O sistema continua gravando `alerts.json` e `alerts.csv` mesmo quando o envio
 esta desabilitado ou indisponivel. Assim, a entrega externa e um canal de
 notificacao, nao a fonte de verdade operacional.
 
+## Operacao diaria no GitHub Actions
+
+O workflow `Daily pipeline operations` executa de segunda a sexta-feira às
+07:00 no horario de Sao Paulo, por meio do cron `10:00 UTC`. Ele tambem pode
+ser iniciado manualmente em `Actions > Daily pipeline operations > Run
+workflow`.
+
+Cada execucao coleta o periodo desde 2024-01-01 ate a data atual, executa o
+pipeline completo, testa `GET /health` e publica os relatorios como artefato
+por 14 dias. Para habilitar Gmail no ambiente remoto, cadastre os secrets
+`ALERT_EMAIL_SENDER`, `ALERT_EMAIL_RECIPIENT` e `ALERT_EMAIL_APP_PASSWORD`.
+
+O workflow nao substitui armazenamento de producao: os artefatos sao a
+retencao da execucao e o banco do job e efemero. Para um site publico com
+dados persistentes, a proxima etapa e conectar um PostgreSQL gerenciado e um
+servico de hospedagem com health checks.
+
 Alert severities:
 
 - `INFO`: informational status.

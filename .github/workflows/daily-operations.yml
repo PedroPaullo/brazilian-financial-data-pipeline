@@ -1,0 +1,76 @@
+name: Daily pipeline operations
+
+on:
+  schedule:
+    # 07:00 America/Sao_Paulo = 10:00 UTC.
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  daily-pipeline:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONNOUSERSITE: "1"
+      ALERT_EMAIL_ENABLED: ${{ secrets.ALERT_EMAIL_APP_PASSWORD != '' }}
+      ALERT_EMAIL_SENDER: ${{ secrets.ALERT_EMAIL_SENDER }}
+      ALERT_EMAIL_RECIPIENT: ${{ secrets.ALERT_EMAIL_RECIPIENT }}
+      ALERT_EMAIL_APP_PASSWORD: ${{ secrets.ALERT_EMAIL_APP_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Collect current operational range
+        run: |
+          START_DATE=2024-01-01
+          END_DATE=$(date -u +%Y-%m-%d)
+          echo "START_DATE=${START_DATE}" >> "$GITHUB_ENV"
+          echo "END_DATE=${END_DATE}" >> "$GITHUB_ENV"
+          python ./collect_data.py --start-date "${START_DATE}" --end-date "${END_DATE}"
+
+      - name: Run full pipeline
+        run: python ./run_pipeline.py --skip-collection --enable-manifest --reconcile
+
+      - name: Smoke test API health
+        run: |
+          python -m uvicorn src.api:app --host 127.0.0.1 --port 8000 > api-smoke.log 2>&1 &
+          API_PID=$!
+          trap 'kill ${API_PID}' EXIT
+          for attempt in 1 2 3 4 5; do
+            if curl --fail --silent http://127.0.0.1:8000/health; then
+              echo
+              exit 0
+            fi
+            sleep 2
+          done
+          cat api-smoke.log
+          exit 1
+
+      - name: Upload operational artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-pipeline-${{ github.run_id }}
+          path: |
+            reports/
+            data/manifests/
+            data/processed/financial_data.db
+            data/operations/pipeline_operations.db
+            logs/pipeline.log
+            api-smoke.log
+          if-no-files-found: warn
+          retention-days: 14
