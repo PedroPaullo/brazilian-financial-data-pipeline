@@ -1,4 +1,40 @@
 services:
+  api:
+    build: .
+    container_name: brazilian_financial_pipeline_api
+    command: python -m uvicorn src.api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    environment:
+      DATABASE_BACKEND: postgres
+      DATABASE_URL: postgresql://pipeline_user:pipeline_pass@postgres:5432/financial_pipeline
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  dashboard:
+    build: .
+    container_name: brazilian_financial_pipeline_dashboard
+    command: streamlit run src/dashboard.py --server.address 0.0.0.0 --server.port 8501
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
+
   postgres:
     image: postgres:15
     container_name: brazilian_financial_pipeline_postgres

@@ -12,6 +12,7 @@ Pipeline executivo para coleta, validação, armazenamento, reconciliação e re
 - [Arquitetura do pipeline com diagrama](docs/architecture.md)
 - [Cobertura de testes](docs/TEST_COVERAGE.md)
 - [Documentação da API REST](docs/API.md)
+- [Deploy reproduzível com Docker](docs/DEPLOYMENT.md)
 
 ## Problema
 
