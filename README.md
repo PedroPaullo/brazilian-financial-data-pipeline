@@ -13,6 +13,7 @@ Pipeline executivo para coleta, validação, armazenamento, reconciliação e re
 - [Cobertura de testes](docs/TEST_COVERAGE.md)
 - [Documentação da API REST](docs/API.md)
 - [Deploy reproduzível com Docker](docs/DEPLOYMENT.md)
+- [Deploy automático no Railway](docs/RAILWAY.md)
 
 ## Problema
 
