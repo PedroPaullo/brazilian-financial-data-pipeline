@@ -12,6 +12,7 @@ from artifact_retention import prune_artifacts, today_stamp
 from config import BCB_SERIES, COLLECTION_DAILY_DIR, COLLECTION_REPORT_DIR, COLLECTION_STATUS_JSON_FILE, COLLECTION_STATUS_MD_FILE, DEFAULT_B3_TICKERS, OUTPUT_FILES
 from logger import get_logger
 from monitoring import finish_pipeline_run, start_pipeline_run
+from source_availability import today_date
 
 logger = get_logger(__name__)
 
@@ -19,7 +20,7 @@ logger = get_logger(__name__)
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", "--start-date", dest="start", default="2024-01-01")
-    parser.add_argument("--end", "--end-date", dest="end", default=date.today().strftime("%Y-%m-%d"))
+    parser.add_argument("--end", "--end-date", dest="end", default=today_date().strftime("%Y-%m-%d"))
     parser.add_argument("--tickers", nargs="+", default=DEFAULT_B3_TICKERS)
     parser.add_argument("--include-cvm", action="store_true")
     parser.add_argument("--cvm-year-month", default=None)
@@ -83,7 +84,7 @@ def _write_collection_status_report(status_report: dict, retention_days: int | N
     markdown_text = "\n".join(md)
     COLLECTION_STATUS_MD_FILE.write_text(markdown_text, encoding="utf-8")
     (COLLECTION_DAILY_DIR / f"{today_stamp()}_collection_status.md").write_text(markdown_text, encoding="utf-8")
-    prune_artifacts([COLLECTION_DAILY_DIR], retention_days=retention_days)
+    prune_artifacts([COLLECTION_DAILY_DIR], retention_days=retention_days, today=date.fromisoformat(today_stamp()))
 
 
 def main():
@@ -91,7 +92,7 @@ def main():
     from collectors.bcb_sgs import fetch_bcb_sgs_series, save_bcb_series_to_csv
     from collectors.b3_yfinance import fetch_b3_stock_prices, save_b3_prices_to_csv
     from collectors.cvm_funds import collect_cvm_funds
-    from source_availability import SEVERITY_ERROR, SEVERITY_WARNING, STATUS_SUCCESS
+    from source_availability import SEVERITY_ERROR, SEVERITY_WARNING, STATUS_SUCCESS, STATUS_NOT_YET_AVAILABLE, today_date
 
     run_id = start_pipeline_run("collect_data")
 
@@ -128,7 +129,8 @@ def main():
             if bcb_df.empty:
                 # Sobrescreve o CSV da serie com cabecalho vazio para evitar
                 # reaproveitamento silencioso de dados antigos em execucoes futuras.
-                save_bcb_series_to_csv(bcb_df, OUTPUT_FILES[series_name])
+                if status_record.get("status") != STATUS_NOT_YET_AVAILABLE:
+                    save_bcb_series_to_csv(bcb_df, OUTPUT_FILES[series_name])
                 logger.warning(
                     "%s: %s registros. Status=%s. Motivo=%s",
                     series_name,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import json
 import os
 import sqlite3
@@ -89,7 +90,7 @@ def _collection_check_status(item: dict[str, Any]) -> tuple[str, str]:
     if status == STATUS_SUCCESS:
         return "INFO", "PASSED"
     if status in EXPECTED_EMPTY_STATUSES:
-        return "WARNING", "FAILED"
+        return "WARNING", "PASSED"
     if severity == "WARNING":
         return "WARNING", "FAILED"
     return "ERROR", "FAILED"
@@ -142,18 +143,18 @@ def _add_collection_status_checks(checks: list[dict[str, Any]], run_id: str, dat
 
         output_file = Path(item.get("output_file") or OUTPUT_FILES.get(series_name, ""))
         csv_rows = _csv_rows(output_file)
-        if item.get("status") != STATUS_SUCCESS and csv_rows > 0:
+        if item.get("status") not in {STATUS_SUCCESS, STATUS_NOT_YET_AVAILABLE} and csv_rows > 0:
             checks.append(_check(run_id, f"stale_csv_reuse:{series_name}", "ERROR", "FAILED", 0, csv_rows, details={"path": str(output_file), "collection_status": item.get("status")}))
         else:
             checks.append(_check(run_id, f"stale_csv_reuse:{series_name}", "INFO", "PASSED", 0, csv_rows, details={"path": str(output_file), "collection_status": item.get("status")}))
 
         loaded_rows = loaded_counts.get(series_name, 0)
-        if item.get("status") != STATUS_SUCCESS and loaded_rows > 0:
+        if item.get("status") not in {STATUS_SUCCESS, STATUS_NOT_YET_AVAILABLE} and loaded_rows > 0:
             checks.append(_check(run_id, f"stale_processed_data:{series_name}", "ERROR", "FAILED", 0, loaded_rows, details={"collection_status": item.get("status")}))
         elif item.get("status") == STATUS_SUCCESS and int(item.get("rows_collected") or 0) > 0 and loaded_rows == 0:
             checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "ERROR", "FAILED", ">0", loaded_rows, details={"collection_rows": item.get("rows_collected")}))
         elif item.get("status") in {STATUS_NOT_YET_AVAILABLE, STATUS_SKIPPED} and loaded_rows == 0:
-            checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "WARNING", "FAILED", "not loaded", loaded_rows, details={"collection_status": item.get("status")}))
+            checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "WARNING", "PASSED", "not loaded", loaded_rows, details={"collection_status": item.get("status")}))
         else:
             checks.append(_check(run_id, f"processed_rows_loaded:{series_name}", "INFO", "PASSED", "consistent", loaded_rows, details={"collection_status": item.get("status")}))
 
@@ -390,7 +391,7 @@ def _write_reports(
     )
     for path in [paths["latest_md"], paths["daily_md"]] + ([paths["run_md"]] if archive_runs else []):
         path.write_text("\n".join(markdown), encoding="utf-8")
-    prune_artifacts([report_daily_dir, report_runs_dir], retention_days=retention_days)
+    prune_artifacts([report_daily_dir, report_runs_dir], retention_days=retention_days, today=date.fromisoformat(today_stamp()))
     return paths
 
 

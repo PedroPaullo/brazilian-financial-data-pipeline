@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 import json
 
 import pandas as pd
+from zoneinfo import ZoneInfo
 
 from config import BCB_SERIES, COLLECTION_STATUS_JSON_FILE, OUTPUT_FILES
 
@@ -61,7 +62,7 @@ CONTROLLED_EMPTY_STATUSES = {
 
 
 def today_date() -> date:
-    return date.today()
+    return datetime.now(ZoneInfo("America/Sao_Paulo")).date()
 
 
 def output_series_for_file(file_path: Path) -> str | None:

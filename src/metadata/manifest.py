@@ -6,7 +6,7 @@ import platform
 import subprocess
 import sys
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -160,7 +160,7 @@ def write_run_manifest(
     if archive_runs:
         _write_json(manifest_path_for_run(str(manifest["run_id"]), directory=runs_dir), manifest)
 
-    prune_artifacts([daily_dir, runs_dir], retention_days=retention_days)
+    prune_artifacts([daily_dir, runs_dir], retention_days=retention_days, today=date.fromisoformat(today_stamp()))
     return latest_path
 
 

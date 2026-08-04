@@ -37,7 +37,7 @@ jobs:
       - name: Collect current operational range
         run: |
           START_DATE=2024-01-01
-          END_DATE=$(date -u +%Y-%m-%d)
+          END_DATE=$(TZ=America/Sao_Paulo date +%Y-%m-%d)
           echo "START_DATE=${START_DATE}" >> "$GITHUB_ENV"
           echo "END_DATE=${END_DATE}" >> "$GITHUB_ENV"
           python ./collect_data.py --start-date "${START_DATE}" --end-date "${END_DATE}"

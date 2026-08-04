@@ -182,4 +182,12 @@ def fetch_bcb_sgs_series(series_code, series_name, start_date, end_date, timeout
 
 def save_bcb_series_to_csv(df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and not df.empty:
+        try:
+            previous = pd.read_csv(output_path)
+            combined = pd.concat([previous, df], ignore_index=True)
+            combined["date"] = pd.to_datetime(combined["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+            df = combined.dropna(subset=["date"]).drop_duplicates(subset=["series_code", "date"], keep="last")
+        except (OSError, ValueError, pd.errors.ParserError):
+            pass
     df.to_csv(output_path, index=False, encoding="utf-8")

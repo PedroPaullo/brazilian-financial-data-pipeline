@@ -49,4 +49,12 @@ def fetch_b3_stock_prices(tickers, start_date, end_date):
 
 def save_b3_prices_to_csv(df, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if output_path.exists() and not df.empty:
+        try:
+            previous = pd.read_csv(output_path)
+            df = pd.concat([previous, df], ignore_index=True)
+            df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
+            df = df.dropna(subset=["date"]).drop_duplicates(subset=["ticker", "date"], keep="last")
+        except (OSError, ValueError, pd.errors.ParserError):
+            pass
     df.to_csv(output_path, index=False, encoding="utf-8")
