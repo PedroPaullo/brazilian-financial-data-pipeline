@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime
 import json
 import os
 import sqlite3
@@ -391,7 +391,7 @@ def _write_reports(
     )
     for path in [paths["latest_md"], paths["daily_md"]] + ([paths["run_md"]] if archive_runs else []):
         path.write_text("\n".join(markdown), encoding="utf-8")
-    prune_artifacts([report_daily_dir, report_runs_dir], retention_days=retention_days, today=date.fromisoformat(today_stamp()))
+    prune_artifacts([report_daily_dir, report_runs_dir], retention_days=retention_days, today=datetime.strptime(today_stamp(), "%Y%m%d").date())
     return paths
 
 

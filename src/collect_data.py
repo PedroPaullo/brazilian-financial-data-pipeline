@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+from datetime import date, datetime
 import json
 import sys
 from pathlib import Path
@@ -84,7 +84,7 @@ def _write_collection_status_report(status_report: dict, retention_days: int | N
     markdown_text = "\n".join(md)
     COLLECTION_STATUS_MD_FILE.write_text(markdown_text, encoding="utf-8")
     (COLLECTION_DAILY_DIR / f"{today_stamp()}_collection_status.md").write_text(markdown_text, encoding="utf-8")
-    prune_artifacts([COLLECTION_DAILY_DIR], retention_days=retention_days, today=date.fromisoformat(today_stamp()))
+    prune_artifacts([COLLECTION_DAILY_DIR], retention_days=retention_days, today=datetime.strptime(today_stamp(), "%Y%m%d").date())
 
 
 def main():
