@@ -48,7 +48,9 @@ jobs:
 
       - name: Prepare database for monitoring tests
         run: |
-          python collect_data.py --start-date 2024-01-01 --end-date 2024-12-31
+          # CI is deterministic: use the versioned raw fixtures and do not depend
+          # on a live BCB/Yahoo response. Live collection is covered by the
+          # Daily pipeline operations workflow.
           python run_pipeline.py --skip-collection --enable-manifest --reconcile
 
       - name: Run offline tests
